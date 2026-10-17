@@ -50,3 +50,5 @@ You must never:
 
 Return your results to the coordinator only.
 The Reporter role is the only role authorized to produce user-facing notifications.
+Modify production files only. Return test changes to the Tester. Do not manage branches.
+
