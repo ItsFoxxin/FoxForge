@@ -1,5 +1,31 @@
 # FoxForge
 
+GitHub Issue intake is available through `foxforge issue <number>` and the
+sequential `foxforge watch` worker. Issue authors and ready-label actors must
+both have numeric IDs in `FOXFORGE_ALLOWED_GITHUB_USER_IDS`. Missing or malformed
+configuration fails closed. Approved `foxforge-ready` issues use a local worktree, an operator-supplied test
+command and explicit `--publish-pr`. The six roles and three-repair cap remain.
+
+```powershell
+python -m foxforge issue 47 --repo C:\Projects\FoxForge-issue-smoke --test-command "python -m pytest -v" --publish-pr --skip-discord
+python -m foxforge watch --repo C:\Projects\FoxForge-issue-smoke --test-command "python -m pytest -v" --publish-pr --poll-interval 60 --skip-discord
+```
+
+The App additionally needs **Issues read/write**, without Administration. See
+[issue intake and laptop background setup](docs/ISSUE_INTAKE.md) for labels,
+claims, retries, smoke tests and the external Windows launcher. The feature form
+is `.github/ISSUE_TEMPLATE/foxforge-feature.yml`. Routine use can be from your
+phone after one-time setup; the laptop/model must stay awake and online. No
+startup or power settings are changed by installation. Interrupted/blocked work
+is preserved and never silently resumed.
+
+Set the allowlist explicitly to your verified immutable GitHub user ID(s), for
+example `FOXFORGE_ALLOWED_GITHUB_USER_IDS=12345678,87654321` (example IDs only).
+Usernames and repository ownership never bypass it. The feature form does not
+auto-apply ready; an approved user creates an issue and explicitly labels it
+after review. Current comment commands are not executed; future handlers must
+pass the shared numeric-ID authorization gate before changing any state.
+
 FoxForge is a local-first multi-agent coding orchestrator built around Qwen Code.
 
 It separates AI reasoning from deterministic orchestration:

@@ -1,5 +1,30 @@
 # Security
 
+## Issue intake
+
+Issues are untrusted external requirements. Both issue author and ready-label
+actor must have immutable numeric IDs in FOXFORGE_ALLOWED_GITHUB_USER_IDS.
+Missing/malformed allowlists fail closed; usernames/ownership cannot bypass it.
+Unauthorized authors cause no claim, task fetch/branch, publishing or Qwen run.
+Public Issue Forms must not automatically apply ready; the supplied form does
+not. Foreign comment content/markers are ignored for bot comment deduplication;
+future comment dispatchers must use authorize_comment_command() before parsing
+or changing state. That gate does not implement retry/resume execution. Python
+alone owns claims, labels, deterministic issue comments, Git and final gates.
+Issue prose cannot configure commands, credentials, YOLO, protected branches or
+the three-repair cap. GitHub/Discord credentials remain absent from Qwen/test
+environments. Intake fetch and push use temporary App credentials with prompts
+disabled; config/logs/state/keys stay outside targets. No Administration grant.
+
+The numeric allowlist is also stripped from agent/test environments and omitted
+from prompts. Author/approver IDs are audit state only. Changes to Windows User
+configuration require restarting the worker; do not infer IDs from usernames.
+
+OS locks and durable reservations coordinate same-user local workers. Separate
+hosts/users are not a distributed lease. Uncertain writes, interrupted runs and
+dirty blocked work stop for review; no automatic resume/reset/delete exists.
+See [ISSUE_INTAKE.md](ISSUE_INTAKE.md) for operating and sandbox limits.
+
 ## Secrets
 
 Never store these in the repository:

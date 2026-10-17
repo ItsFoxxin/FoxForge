@@ -41,6 +41,24 @@ class RunState:
     pull_request_number: int | None = None
     pull_request_url: str | None = None
 
+    github_issue_number: int | None = None
+    github_issue_author_id: int | None = None
+    github_issue_approved_by_id: int | None = None
+    github_issue_url: str | None = None
+    github_issue_title: str | None = None
+    github_issue_body: str | None = None
+    github_issue_labels: list[str] = field(default_factory=list)
+    github_issue_created_at: str | None = None
+    github_issue_updated_at: str | None = None
+    github_issue_revision: str | None = None
+    github_issue_ready_event_id: int | None = None
+    github_issue_approved_by: str | None = None
+    github_issue_status: str | None = None
+    issue_sync_status: str = "NOT_REQUESTED"
+    issue_error: str | None = None
+    issue_claim_comment_id: int | None = None
+    issue_result_comment_id: int | None = None
+
     def to_dict(self) -> dict:
         return asdict(self)
 

@@ -27,6 +27,8 @@ def main() -> None:
         names = archive.namelist()
         assert len([name for name in names if "/qwen-agents/" in name and name.endswith(".md")]) == 6
         assert any(name.endswith("/share/foxforge/qwen-settings.json") for name in names)
+        assert any(name.endswith("/share/foxforge/worker-config.example.json") for name in names)
+        assert any(name.endswith("/share/foxforge/scripts/start-worker.ps1") for name in names)
         assert not any("__pycache__" in name or ".pytest_cache" in name or "VALIDATION.txt" in name for name in names)
     with tempfile.TemporaryDirectory(prefix="foxforge-package-") as temp:
         directory = Path(temp)
@@ -49,6 +51,9 @@ def main() -> None:
         for module in ("foxforge", "foxforge.github_app", "foxforge.reporter_dispatch", "foxforge.notify_status", "foxforge.notifier"):
             check(python, "-m", module, "--help")
         check(console, "--help")
+        for command in ("issue", "watch"):
+            check(python, "-m", "foxforge", command, "--help")
+            check(console, command, "--help")
         failure = subprocess.run(
             [str(python), "-m", "foxforge", "--repo", str(directory), "--task", "validation", "--test-command", "pytest", "--skip-discord"],
             cwd=directory, env=env, capture_output=True, text=True, timeout=120,

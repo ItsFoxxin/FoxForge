@@ -11,6 +11,7 @@ import stat
 import sys
 import tempfile
 from urllib.parse import quote, urlencode, urlsplit
+from typing import Callable
 
 from .github_app import BotIdentity, GitHubApp, GitHubAppError, repository_name
 from .git_manager import GitError, current_branch, head_sha, run_git, resolve_ref
@@ -181,7 +182,7 @@ def commit_validated_changes(repo: Path, state: RunState, bot: BotIdentity, run_
             return head_sha(repo)
         if staged.returncode != 1:
             raise PublishingError("Could not verify the staged task changes")
-        subject = " ".join(state.task.split())[:100]
+        subject = " ".join((state.github_issue_title or state.task).split())[:100]
         message = f"FoxForge: {subject}\n\nFoxForge-Run: {state.run_id}\nFoxForge-Branch: {state.branch}\nFoxForge-Repository: {state.github_repository}\n"
         run_git(repo, *options, "commit", "--no-gpg-sign", "-m", message, env=env, safe=True)
         state.commit_sha = head_sha(repo)
@@ -205,6 +206,16 @@ def push_task_branch(repo: Path, state: RunState, run_dir: Path, token: str, exp
     with git_credentials(run_dir, state.github_repository, token) as (env, options):
         run_git(repo, *options, "push", "--porcelain", f"--force-with-lease={ref}:{expected_remote or ''}",
                 f"https://github.com/{state.github_repository}.git", f"{state.commit_sha}:{ref}", env=env, safe=True)
+
+
+def fetch_dev_branch(repo: Path, repository: str, run_dir: Path, token: str) -> None:
+    """Unattended intake fetches dev using the same ephemeral App credentials."""
+    if origin_repository(repo).casefold() != repository.casefold():
+        raise PublishingError("Origin changed before the issue base fetch")
+    _assert_safe_git_config(repo)
+    with git_credentials(run_dir, repository, token) as (env, options):
+        run_git(repo, *options, "fetch", "--no-tags", f"https://github.com/{repository}.git",
+                "refs/heads/dev:refs/remotes/origin/dev", env=env, safe=True)
 
 
 def pr_marker(state: RunState) -> str:
@@ -251,13 +262,15 @@ def ensure_pull_request(app: GitHubApp, state: RunState, bot: BotIdentity) -> di
     existing = find_existing_pr(app, state, bot, state.commit_sha)
     if existing:
         return existing
-    title = "FoxForge: " + " ".join(state.task.split())[:120]
+    title = (f"FoxForge #{state.github_issue_number}: " if state.github_issue_number is not None else "FoxForge: ") + " ".join((state.github_issue_title or state.task).split())[:120]
     task = "\n".join("> " + line for line in state.task.splitlines())
     body = (f"{pr_marker(state)}\n\n{task}\n\n"
             f"Local status: {state.final_status}\nBranch: `{state.branch}`\nCommit: `{state.commit_sha}`\n"
             f"Tests: {state.tests_passed} passed, {state.tests_failed} failed\nReview: {state.review_result}\n"
             f"Repair cycles: {state.repair_cycles}/3\nTests added: {state.tests_added}\n"
             "\nTargets dev. Requires human review/playtest; no automatic merge or main integration.\n")
+    if state.github_issue_number is not None:
+        body += f"\nFoxForge-Issue: {state.github_repository}#{state.github_issue_number}\nRelated issue: {state.github_issue_url}\n"
     try:
         data = app.api("POST", f"/repos/{state.github_repository}/pulls",
                        {"title": title, "head": state.branch, "base": "dev", "body": body, "maintainer_can_modify": False})
@@ -270,7 +283,7 @@ def ensure_pull_request(app: GitHubApp, state: RunState, bot: BotIdentity) -> di
     return _validate_pr(data, state, bot, sha=state.commit_sha)
 
 
-def publish_run(repo: Path, state: RunState, state_path: Path, app: GitHubApp) -> None:
+def publish_run(repo: Path, state: RunState, state_path: Path, app: GitHubApp, *, guard: Callable[[], None] | None = None) -> None:
     """Persist each completed side effect so partial failures remain inspectable."""
     validate_state_for_publish(state)
     stage = "preflight"
@@ -296,15 +309,21 @@ def publish_run(repo: Path, state: RunState, state_path: Path, app: GitHubApp) -
         if expected_remote and not find_existing_pr(app, state, bot, expected_remote):
             raise PublishingError("Existing remote task branch has no owned FoxForge PR")
         stage = "commit"
+        if guard:
+            guard()
         state.commit_sha = commit_validated_changes(repo, state, bot, state_path.parent)
         state.publishing_status = "COMMITTED"
         state.save(state_path)
         stage = "push"
+        if guard:
+            guard()
         push_task_branch(repo, state, state_path.parent, app.installation_token(), expected_remote)
         state.remote_branch = state.branch
         state.publishing_status = "PUSHED"
         state.save(state_path)
         stage = "pull request"
+        if guard:
+            guard()
         pr = ensure_pull_request(app, state, bot)
         state.pull_request_number, state.pull_request_url = pr["number"], pr["url"]
         state.publishing_status = "PUBLISHED"

@@ -84,3 +84,13 @@ def test_multiline_task_and_filename_are_escaped():
     output = "\n".join(expected_reporter_lines(state))
     assert "Task: First line\\nSecond line" in output
     validate_reporter_output(state, output)
+
+
+def test_canonical_empty_files_pass_but_list_representation_is_rejected():
+    state = ready_state()
+    state.files_changed = []
+    output = "\n".join(expected_reporter_lines(state))
+    assert "Files changed: (none)" in output
+    validate_reporter_output(state, output)
+    with pytest.raises(StateValidationError, match="does not exactly match"):
+        validate_reporter_output(state, output.replace("Files changed: (none)", "Files changed: []"))

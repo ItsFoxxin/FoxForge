@@ -1,5 +1,23 @@
 # GitHub App Publishing
 
+## Issue intake permission
+
+Issue intake also requires FOXFORGE_ALLOWED_GITHUB_USER_IDS, a comma-separated
+allowlist of immutable numeric account IDs. Both the issue author and ready
+label actor must be approved. No GitHub username or App installation permission
+substitutes for this local policy. Missing/invalid values fail closed. This does
+not change the permissions needed by ordinary non-issue task publishing.
+
+The optional issue/watch workflow additionally requests **Issues: read/write**.
+Existing Metadata read, Contents read/write and Pull requests read/write remain;
+Administration is not required. Accept updated installation permissions.
+`python -m foxforge.github_app --check --issues --repository owner/name` verifies
+read-only issue permission grants. Normal task publishing does not request
+Issues permission. Issue intake uses ephemeral App authentication for its dev
+fetch as well as its push, avoiding host Git credential prompts. See
+[ISSUE_INTAKE.md](ISSUE_INTAKE.md) for labels, owner approval, manual/polling
+commands, mutation checks, partial failures and Windows background setup.
+
 FoxForge supports explicit Python-owned publishing after local validation.
 The six roles and three-repair limit are unchanged. The publishing step runs
 after Helper and before Reporter, so Reporter receives verified publication

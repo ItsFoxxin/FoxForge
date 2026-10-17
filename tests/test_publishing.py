@@ -89,6 +89,29 @@ def test_successful_publish_commits_as_api_bot_and_records_pr(publish_context, m
         validate_reporter_output(state, output.replace("/pull/12", "/pull/13"))
 
 
+def test_issue_guard_runs_before_commit_push_and_pr(publish_context, monkeypatch):
+    repo, state, path = publish_context
+    app = FakeApp(state)
+    observations = []
+    monkeypatch.setattr(publishing, "push_task_branch", lambda *args: None)
+    publishing.publish_run(repo, state, path, app, guard=lambda: observations.append(state.publishing_status))
+    assert observations == ["PENDING", "COMMITTED", "PUSHED"]
+
+
+def test_issue_revision_failure_after_commit_never_pushes(publish_context, monkeypatch):
+    repo, state, path = publish_context
+    app = FakeApp(state)
+    def guard():
+        if state.commit_sha:
+            raise PublishingError("Issue changed")
+    monkeypatch.setattr(publishing, "push_task_branch", lambda *args: pytest.fail("Changed issue pushed"))
+    with pytest.raises(PublishingError):
+        publishing.publish_run(repo, state, path, app, guard=guard)
+    assert state.commit_sha == head_sha(repo) and state.publishing_status == "FAILED"
+    assert state.remote_branch is None and state.pull_request_url is None
+    assert not any(method == "POST" for method, _, _ in app.calls)
+
+
 @pytest.mark.parametrize("branch", ["main", "master", "dev", "feature/test", "foxforge/../dev", "foxforge/test:dev", "foxforge/"])
 def test_branch_allowlist_rejects_unsafe_destinations(publish_context, branch):
     repo, state, _ = publish_context
@@ -122,6 +145,26 @@ def test_push_uses_ephemeral_credentials_and_exact_safe_ref(publish_context, mon
     assert not Path(env["GIT_ASKPASS"]).exists()
     assert not list(path.parent.glob("git-auth-*"))
     assert token not in run_git(repo, "config", "--local", "--list").stdout
+
+
+def test_issue_base_fetch_uses_ephemeral_credentials_without_prompts(publish_context, monkeypatch):
+    repo, state, path = publish_context
+    token = "synthetic-issue-fetch-credential"
+    calls = []
+    real_git = publishing.run_git
+    def git(target, *args, **kwargs):
+        if "fetch" in args:
+            calls.append(args)
+            assert token not in repr(args)
+            assert kwargs["env"]["_FOXFORGE_INSTALLATION_TOKEN"] == token
+            assert kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"
+            assert Path(kwargs["env"]["GIT_ASKPASS"]).exists()
+            return subprocess.CompletedProcess(args, 0, "", "")
+        return real_git(target, *args, **kwargs)
+    monkeypatch.setattr(publishing, "run_git", git)
+    publishing.fetch_dev_branch(repo, state.github_repository, path.parent, token)
+    assert calls[0][-1] == "refs/heads/dev:refs/remotes/origin/dev"
+    assert not list(path.parent.glob("git-auth-*"))
 
 
 def test_askpass_works_with_real_git_credential_fill_without_network(publish_context):

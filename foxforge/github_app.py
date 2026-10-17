@@ -92,7 +92,7 @@ def _http_json(method: str, path: str, credential: str, body=None):
             raw = response.read(4 * 1024 * 1024 + 1)
             if len(raw) > 4 * 1024 * 1024:
                 raise GitHubAppError("GitHub API response exceeded its size limit")
-            return json.loads(raw.decode("utf-8"))
+            return None if response.status == 204 and not raw else json.loads(raw.decode("utf-8"))
     except error.HTTPError as exc:
         # Never include the body/reason: servers and proxies can echo secrets.
         raise GitHubAppError(f"GitHub API failed (HTTP {exc.code})", exc.code) from None
@@ -105,10 +105,11 @@ def _positive_id(value) -> bool:
 
 
 class GitHubApp:
-    def __init__(self, config: AppConfig, repository: str, *, publishing: bool = False):
+    def __init__(self, config: AppConfig, repository: str, *, publishing: bool = False, issues: bool = False):
         self.config = config
         self.repository = repository_name(repository)
         self.publishing = publishing
+        self.issues = issues
         self._token: str | None = None
         self._expires_at = 0.0
         self._installation = None
@@ -154,6 +155,8 @@ class GitHubApp:
         self._token, self._expires_at = None, 0.0
         self.installation()
         permissions = {"contents": "write" if self.publishing else "read", "pull_requests": "write" if self.publishing else "read"}
+        if self.issues:
+            permissions["issues"] = "write" if self.publishing else "read"
         data = _http_json("POST", f"/app/installations/{self.config.installation_id}/access_tokens", self.create_jwt(),
                           {"repositories": [self.repository.split("/")[1]], "permissions": permissions})
         try:
@@ -200,9 +203,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Read-only GitHub App installation/repository check")
     parser.add_argument("--check", action="store_true", required=True)
     parser.add_argument("--repository", required=True, help="Expected owner/name")
+    parser.add_argument("--issues", action="store_true", help="Also verify a read-only Issues permission grant")
     args = parser.parse_args(argv)
     try:
-        app = GitHubApp(AppConfig.from_env(), args.repository)
+        app = GitHubApp(AppConfig.from_env(), args.repository, issues=args.issues)
         metadata = app.check_repository()
         print(f"Repository: {metadata['full_name']}")
         print(f"Installation ID: {app.config.installation_id}")

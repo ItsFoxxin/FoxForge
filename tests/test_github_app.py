@@ -170,3 +170,27 @@ def test_transport_uses_header_and_refuses_redirects(monkeypatch):
     assert seen[0].get_header("Authorization") == "Bearer test-jwt-secret"
     assert "test-jwt-secret" not in seen[0].full_url
     assert github_app._NoRedirect().redirect_request(None, None, 302, "moved", {}, "https://other.invalid") is None
+
+
+@pytest.mark.parametrize("write", [False, True])
+def test_issue_client_requests_only_explicit_issue_permissions(app_config, monkeypatch, write):
+    monkeypatch.setattr(github_app.time, "time", lambda: 1000)
+    requested = []
+    def http(method, path, credential, body=None):
+        if method == "GET":
+            return installation()
+        requested.append(body)
+        response = token_response(write=write)
+        response["permissions"]["issues"] = "write" if write else "read"
+        return response
+    monkeypatch.setattr(github_app, "_http_json", http)
+    GitHubApp(app_config, "owner/project", publishing=write, issues=True).installation_token()
+    assert requested[0]["permissions"]["issues"] == ("write" if write else "read")
+    assert "administration" not in requested[0]["permissions"]
+
+
+def test_issue_client_rejects_missing_issue_grant(app_config, monkeypatch):
+    monkeypatch.setattr(github_app.time, "time", lambda: 1000)
+    monkeypatch.setattr(github_app, "_http_json", lambda method, *a, **k: installation() if method == "GET" else token_response(write=True))
+    with pytest.raises(GitHubAppError):
+        GitHubApp(app_config, "owner/project", publishing=True, issues=True).installation_token()

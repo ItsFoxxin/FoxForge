@@ -1,5 +1,13 @@
 # Architecture
 
+Issue intake is an outer Python layer: immutable IssueTask snapshots, bounded
+IssueAPI calls, external OS locks/reservations, and a CLI router feed a prepared
+RunState into the existing coordinator. Internal hooks validate the claim before
+publication and synchronize deterministic issue results after strict Reporter
+validation. A sequential watch loop calls the same manual execution path. No
+agent or issue prose controls Python policy, Git, credentials or repair limits.
+See [ISSUE_INTAKE.md](ISSUE_INTAKE.md) for the lifecycle and recovery boundaries.
+
 FoxForge separates probabilistic agent work from deterministic orchestration.
 
 ## AI-owned work

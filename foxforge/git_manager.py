@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable
 from .security import redact
 from .process import run_process
 
@@ -138,6 +139,8 @@ def create_task_branch(
     repo: Path,
     branch: str,
     base_branch: str = "dev",
+    *,
+    fetch_origin: Callable[[Path], None] | None = None,
 ) -> None:
     if not branch.startswith("foxforge/"):
         raise GitError(
@@ -150,7 +153,7 @@ def create_task_branch(
 
     ensure_repo(repo)
     ensure_clean_worktree(repo)
-    fetch(repo)
+    (fetch_origin or fetch)(repo)
 
     if local_branch_exists(repo, branch) or remote_branch_exists(repo, branch):
         raise GitError(f"Branch already exists: {branch}")

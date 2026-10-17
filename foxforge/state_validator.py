@@ -64,6 +64,7 @@ def _validate_state(state: RunState, expected_agents: list[str]) -> None:
             f"Invalid final status: {state.final_status}"
         )
     _validate_publishing_fields(state)
+    validate_issue_fields(state)
 
     if state.final_status == "READY_FOR_PLAYTEST":
         if state.branch in {"main", "master", "dev"}:
@@ -98,12 +99,12 @@ def validate_final_state(state: RunState) -> None:
 
 
 def expected_reporter_lines(state: RunState) -> list[str]:
-    files = ", ".join(report_value(path) for path in state.files_changed) if state.files_changed else "(none)"
+    files = format_changed_files(state.files_changed)
     agents = ", ".join(state.agents_completed)
 
     lines = [
         "FoxForge Status",
-        f"Task: {report_value(state.task)}",
+        f"Task: {report_value(report_task(state))}",
         f"Agents completed: {agents}",
         f"Files changed: {files}",
         f"Tests added: {state.tests_added}",
@@ -120,6 +121,8 @@ def expected_reporter_lines(state: RunState) -> list[str]:
             f"Remote branch: {state.remote_branch or '(none)'}",
             f"PR: {state.pull_request_url or '(none)'}",
         ])
+    if state.github_issue_number is not None:
+        lines.append(f"Issue: {state.github_issue_url}")
     return lines
 
 
@@ -164,6 +167,60 @@ def _validate_publishing_fields(state: RunState) -> None:
 def report_value(value: str) -> str:
     """Keep task-file newlines and unusual filenames inside one report line."""
     return value.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
+
+
+def report_task(state: RunState) -> str:
+    """Issue notifications use verified identity/title, not the entire body."""
+    return state.task if state.github_issue_number is None else f"GitHub issue #{state.github_issue_number}: {state.github_issue_title}"
+
+
+def validate_issue_fields(state: RunState) -> None:
+    from .issue_tasks import IssueTask, IssueError
+    from .actor_authorization import valid_user_id
+    names = ("github_issue_url", "github_issue_title", "github_issue_body", "github_issue_created_at",
+             "github_issue_updated_at", "github_issue_revision", "github_issue_status", "issue_error",
+             "github_issue_ready_event_id", "github_issue_approved_by", "issue_claim_comment_id", "issue_result_comment_id",
+             "github_issue_author_id", "github_issue_approved_by_id")
+    if state.github_issue_number is None:
+        if any(getattr(state, name) is not None for name in names) or state.github_issue_labels or state.issue_sync_status != "NOT_REQUESTED":
+            raise StateValidationError("Issue metadata requires a verified issue identity")
+        return
+    try:
+        if not state.publish_requested or not isinstance(state.github_issue_labels, list):
+            raise ValueError
+        snapshot = IssueTask.from_api(state.github_repository, state.github_issue_number, {
+            "number": state.github_issue_number, "html_url": state.github_issue_url,
+            "title": state.github_issue_title, "body": state.github_issue_body, "state": "open",
+            "user": {"id": state.github_issue_author_id},
+            "labels": [{"name": name} for name in state.github_issue_labels],
+            "created_at": state.github_issue_created_at, "updated_at": state.github_issue_updated_at,
+        })
+        if snapshot.revision != state.github_issue_revision or snapshot.task_text != state.task or not state.branch.startswith(f"foxforge/{snapshot.number}-"):
+            raise ValueError
+        if not valid_user_id(state.github_issue_approved_by_id):
+            raise ValueError
+        if type(state.github_issue_ready_event_id) is not int or state.github_issue_ready_event_id <= 0 or not isinstance(state.github_issue_approved_by, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}", state.github_issue_approved_by):
+            raise ValueError
+        if state.github_issue_status not in {"PENDING", "CLAIMING", "RUNNING", "COMPLETE", "BLOCKED", "INTERVENTION", "INTERRUPTED"} or state.issue_sync_status not in {"PENDING", "SYNCED", "FAILED"}:
+            raise ValueError
+        if state.issue_error is not None and state.issue_error not in {"ISSUE_CHANGED", "CLAIM_LOST", "SYNC_FAILED", "EXECUTION_FAILED", "INTERRUPTED"}:
+            raise ValueError
+        for name in ("issue_claim_comment_id", "issue_result_comment_id"):
+            value = getattr(state, name)
+            if value is not None and (type(value) is not int or value <= 0):
+                raise ValueError
+    except (IssueError, ValueError, TypeError, AttributeError):
+        raise StateValidationError("Invalid issue identity, snapshot, or lifecycle facts") from None
+
+
+def validate_execution_state(state: RunState) -> None:
+    """Validate local/publishing facts before issue results and Reporter."""
+    _validate_state(state, REQUIRED_AGENTS[:-1])
+
+
+def format_changed_files(files_changed: list[str]) -> str:
+    """The exact Reporter field, already escaped and ready to print literally."""
+    return ", ".join(report_value(path) for path in files_changed) if files_changed else "(none)"
 
 
 def validate_reporter_output(

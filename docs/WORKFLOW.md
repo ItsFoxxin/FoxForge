@@ -1,5 +1,20 @@
 # Workflow
 
+## Issue intake
+
+Allowlisted numeric issue-author ID + allowlisted ready-label actor ID ->
+explicit foxforge-ready -> durable claim/snapshot -> foxforge-running ->
+origin/dev task branch -> existing six-role/tests/three-repair coordinator ->
+READY_FOR_PLAYTEST or BLOCKED -> successful App publication to a dev PR ->
+exact Reporter validation -> verified issue comment/labels -> Discord.
+
+Use `foxforge issue 47 --help` manually or `foxforge watch --help` for sequential
+polling; both require explicit --publish-pr. Complete means local validation
+and publication succeeded. Three failed repairs mean blocked, preserved work,
+verified failure facts and nonzero exit; there is no fourth repair. Retries need
+owner reapproval and a new run ID. Interrupted claims are not silently resumed.
+See [ISSUE_INTAKE.md](ISSUE_INTAKE.md) for exact commands and laptop setup.
+
 ## Sandbox workflow
 
 Use the current branch and compare against `HEAD`:

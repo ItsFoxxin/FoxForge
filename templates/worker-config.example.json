@@ -1,0 +1,8 @@
+{
+  "repository_path": "C:\\Projects\\FoxForge-issue-smoke",
+  "python_executable": "C:\\Tools\\FoxForge\\Scripts\\python.exe",
+  "test_command": "python -m pytest -v",
+  "publish_pr": true,
+  "poll_interval": 60,
+  "skip_discord": true
+}

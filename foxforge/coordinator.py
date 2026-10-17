@@ -7,6 +7,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+from dataclasses import dataclass
+from typing import Callable
 
 from .agent_runner import AgentResult, run_project_agent
 from .git_manager import (
@@ -29,6 +31,8 @@ from .state_validator import (
     validate_reporter_output,
     validate_state_for_report,
     report_value,
+    report_task,
+    format_changed_files,
 )
 from .test_runner import count_added_tests, run_tests
 from .github_app import AppConfig, GitHubApp
@@ -39,9 +43,21 @@ from .security import ensure_key_outside_repo, redact
 REPAIR_LIMIT = 3
 
 
+@dataclass
+class RunHooks:
+    """Internal integration points; never configurable through issue prose."""
+    state: RunState
+    run_dir: Path
+    before_publish: Callable[[RunState, Path], None]
+    after_report: Callable[[RunState, Path], None]
+    fetch_origin: Callable[[Path], None] | None = None
+    interrupted: bool = False
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="FoxForge deterministic multi-agent coordinator"
+        description="FoxForge deterministic multi-agent coordinator",
+        epilog="Issue intake: foxforge issue <number> --help. Polling worker: foxforge watch --help.",
     )
 
     parser.add_argument(
@@ -233,7 +249,7 @@ Do not invent facts.
 """.strip()
 
 
-def build_reporter_task(publishing: bool = False) -> str:
+def build_reporter_task(publishing: bool = False, issue: bool = False) -> str:
     text = """
 Produce the FoxForge status message from the supplied verified facts only.
 
@@ -255,7 +271,9 @@ Do not run commands.
 Do not use tools.
 Do not infer or invent facts.
 Do not change any supplied value.
-Task and file values already escape backslashes and line breaks; print those supplied strings literally.
+Task and files_changed are already formatted strings with escaped backslashes and line breaks.
+Print those supplied strings literally. files_changed is the exact text after "Files changed: ".
+Do not convert it to a list or choose another empty-value representation.
 """.strip()
     if publishing:
         text += """
@@ -268,6 +286,8 @@ Remote branch: <remote_branch>
 PR: <pull_request_url>
 Do not infer that publication succeeded from local READY_FOR_PLAYTEST.
 """
+    if issue:
+        text += "\nAppend exactly:\nIssue: <github_issue_url>\nCopy this verified URL literally.\n"
     return text
 
 
@@ -280,13 +300,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def run(args: argparse.Namespace) -> int:
+def run(args: argparse.Namespace, *, hooks: RunHooks | None = None) -> int:
 
     repo = Path(args.repo).resolve()
     ensure_repo(repo)
     ensure_clean_worktree(repo)
     ensure_key_outside_repo(repo)
-    task = read_task(args)
+    task = hooks.state.task if hooks else read_task(args)
     if not task:
         raise ValueError("Task must not be empty")
     if redact(task) != task:
@@ -307,6 +327,7 @@ def run(args: argparse.Namespace) -> int:
             repo=repo,
             branch=branch,
             base_branch=args.base_branch,
+            **({"fetch_origin": hooks.fetch_origin} if hooks and hooks.fetch_origin else {}),
         )
         base_ref = f"origin/{args.base_branch}"
 
@@ -320,11 +341,11 @@ def run(args: argparse.Namespace) -> int:
 
     base_ref = resolve_ref(repo, base_ref)
     starting_head = head_sha(repo)
-    run_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:12]
-    run_dir = create_run_dir(repo, run_id)
+    run_id = hooks.state.run_id if hooks else datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:12]
+    run_dir = hooks.run_dir if hooks else create_run_dir(repo, run_id)
     (run_dir / "task.txt").write_text(task + "\n", encoding="utf-8")
 
-    state = RunState(
+    state = hooks.state if hooks else RunState(
         run_id=run_id,
         task=task,
         branch=branch,
@@ -334,6 +355,11 @@ def run(args: argparse.Namespace) -> int:
         publishing_status="PENDING" if args.publish_pr else "NOT_REQUESTED",
         validated_head_sha=starting_head if args.publish_pr else None,
     )
+    if hooks:
+        if state.branch != branch or state.github_repository != github_repository or not args.publish_pr or state.github_issue_status != "RUNNING":
+            raise ValueError("Prepared issue run does not match the coordinator invocation")
+        state.base_ref = base_ref
+        state.validated_head_sha = starting_head
 
     state_path = run_dir / "state.json"
     reporter_path = run_dir / "reporter.txt"
@@ -550,7 +576,8 @@ def run(args: argparse.Namespace) -> int:
                 state.publishing_error = "Local validation did not reach READY_FOR_PLAYTEST; publishing was not attempted"
             else:
                 try:
-                    publish_run(repo, state, state_path, GitHubApp(app_config, github_repository, publishing=True))
+                    publish_run(repo, state, state_path, GitHubApp(app_config, github_repository, publishing=True),
+                                **({"guard": lambda: hooks.before_publish(state, state_path)} if hooks else {}))
                 except PublishingError:
                     # Keep the local test/review outcome distinct from publication.
                     (run_dir / "publishing-error.txt").write_text(state.publishing_error + "\n", encoding="utf-8")
@@ -563,9 +590,9 @@ def run(args: argparse.Namespace) -> int:
 
         reporter_facts = json.dumps(
             {
-                "task": report_value(state.task),
+                "task": report_value(report_task(state)),
                 "agents_completed": final_agent_list,
-                "files_changed": [report_value(path) for path in state.files_changed],
+                "files_changed": format_changed_files(state.files_changed),
                 "tests_added": state.tests_added,
                 "tests_passed": state.tests_passed,
                 "tests_failed": state.tests_failed,
@@ -577,6 +604,7 @@ def run(args: argparse.Namespace) -> int:
                 "commit_sha": state.commit_sha or "(none)",
                 "remote_branch": state.remote_branch or "(none)",
                 "pull_request_url": state.pull_request_url or "(none)",
+                "github_issue_url": state.github_issue_url,
             },
             indent=2,
         )
@@ -585,7 +613,7 @@ def run(args: argparse.Namespace) -> int:
             repo,
             run_dir,
             "reporter",
-            build_reporter_task(args.publish_pr),
+            build_reporter_task(args.publish_pr, state.github_issue_number is not None),
             reporter_facts,
             args.max_agent_time,
         )
@@ -604,7 +632,13 @@ def run(args: argparse.Namespace) -> int:
             reporter.stdout,
         )
 
-        if args.skip_discord:
+        if hooks:
+            hooks.after_report(state, state_path)
+            state.save(state_path)
+
+        if state.issue_sync_status == "FAILED":
+            state.notification_status = "NOT_SENT_ERROR"
+        elif args.skip_discord:
             state.notification_status = "SKIPPED"
         else:
             sent = dispatch_report(
@@ -625,6 +659,8 @@ def run(args: argparse.Namespace) -> int:
         subprocess.SubprocessError,
         KeyboardInterrupt,
     ) as exc:
+        if hooks and isinstance(exc, KeyboardInterrupt):
+            hooks.interrupted = True
         state.final_status = "BLOCKED"
         state.notification_status = "NOT_SENT_ERROR"
         try:
@@ -643,7 +679,7 @@ def run(args: argparse.Namespace) -> int:
     print(reporter.stdout)
     print(f"Artifacts: {run_dir}")
 
-    return 0 if state.final_status == "READY_FOR_PLAYTEST" and state.notification_status != "FAILED" and state.publishing_status not in {"FAILED", "BLOCKED"} else 1
+    return 0 if state.final_status == "READY_FOR_PLAYTEST" and state.notification_status != "FAILED" and state.publishing_status not in {"FAILED", "BLOCKED"} and state.issue_sync_status != "FAILED" else 1
 
 
 if __name__ == "__main__":

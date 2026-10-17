@@ -58,6 +58,32 @@ def test_complete_run_uses_six_roles_and_saves_state(orchestration):
     assert len(state.base_ref) == 40  # Frozen before agents run.
 
 
+@pytest.mark.parametrize("files,expected", [
+    ([], "(none)"),
+    (["calculator.py", "test_calculator.py"], "calculator.py, test_calculator.py"),
+    (["dir\\odd\nname\t.py", "carriage\rreturn.py"], r"dir\\odd\nname\t.py, carriage\rreturn.py"),
+])
+def test_reporter_receives_canonical_file_string(orchestration, monkeypatch, files, expected):
+    args, run_dir, calls, agent = orchestration
+    supplied = []
+
+    def capture(repo, role, task, context="", **kwargs):
+        if role == "reporter":
+            facts = json.loads(context)
+            supplied.append(facts["files_changed"])
+            assert isinstance(facts["files_changed"], str)
+            assert facts["files_changed"] == expected
+            assert "Print those supplied strings literally" in task
+        return agent(repo, role, task, context=context, **kwargs)
+
+    monkeypatch.setattr(coordinator, "changed_files", lambda *args: files)
+    monkeypatch.setattr(coordinator, "run_project_agent", capture)
+    assert coordinator.main(args) == 0
+    assert supplied == [expected]
+    assert f"Files changed: {expected}" in (run_dir / "reporter.txt").read_text(encoding="utf-8")
+    assert RunState.load(run_dir / "state.json").files_changed == files
+
+
 def test_repair_stops_at_three_and_blocked_is_failure(orchestration, monkeypatch):
     args, run_dir, calls, _ = orchestration
     monkeypatch.setattr(coordinator, "run_tests", lambda *args, **kwargs: ValidationResult(["pytest"], 1, 3, 2, "2 failed, 3 passed", True))

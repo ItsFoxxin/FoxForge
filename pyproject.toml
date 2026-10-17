@@ -21,15 +21,15 @@ dev = [
 ]
 
 [project.scripts]
-foxforge = "foxforge.coordinator:main"
+foxforge = "foxforge.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["foxforge*"]
 
 [tool.setuptools.data-files]
-"share/foxforge" = ["templates/qwen-settings.json"]
+"share/foxforge" = ["templates/qwen-settings.json", "templates/worker-config.example.json"]
 "share/foxforge/qwen-agents" = ["templates/qwen-agents/*.md"]
-"share/foxforge/scripts" = ["scripts/install-target.ps1"]
+"share/foxforge/scripts" = ["scripts/install-target.ps1", "scripts/start-worker.ps1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
