@@ -19,9 +19,9 @@ For a target project using `dev` as the integration branch:
 
 ```powershell
 python -m foxforge `
-  --repo C:\Projects\Dead_Circuit `
-  --task-file C:\Tasks\blood-capacitor.txt `
-  --test-command "python tools/dev.py validate" `
+  --repo C:\Projects\YourProject `
+  --task-file C:\Tasks\task.txt `
+  --test-command "python -m pytest -v" `
   --create-branch `
   --base-branch dev `
   --base-ref origin/dev
@@ -71,3 +71,7 @@ Reviewer
 ```
 
 After the limit, the run becomes `BLOCKED`.
+
+Sandbox runs require a non-protected task/sandbox branch with an existing commit.
+Unverified or zero passing test counts also trigger repair. A BLOCKED run exits 1.
+

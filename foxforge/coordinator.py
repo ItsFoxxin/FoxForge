@@ -2,33 +2,41 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
-from agent_runner import AgentResult, run_project_agent
-from git_manager import (
+from .agent_runner import AgentResult, run_project_agent
+from .git_manager import (
     changed_files,
     create_task_branch,
+    current_branch,
     diff,
     ensure_repo,
+    ensure_clean_worktree,
     slugify_task,
+    head_sha,
+    resolve_ref,
 )
-from state import RunState
-from state_validator import (
+from .process import duration_seconds
+from .reporter_dispatch import dispatch_report
+from .run_storage import create_run_dir
+from .state import RunState
+from .state_validator import (
     StateValidationError,
-    validate_final_state,
     validate_reporter_output,
+    validate_state_for_report,
+    report_value,
 )
-from test_runner import count_added_tests, run_tests
+from .test_runner import count_added_tests, run_tests
 
 
 REPAIR_LIMIT = 3
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="FoxForge deterministic multi-agent coordinator"
     )
@@ -40,10 +48,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     task_group = parser.add_mutually_exclusive_group(required=True)
-    task_group.add_argument(
-        "--task",
-        help="Task text",
-    )
+    task_group.add_argument("--task", help="Task text")
     task_group.add_argument(
         "--task-file",
         help="UTF-8 text file containing the task",
@@ -64,7 +69,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Git ref used to calculate task changes. "
             "Sandbox default: HEAD. "
-            "Dead Circuit task branches should use origin/dev."
+            "Project task branches should use origin/dev."
         ),
     )
 
@@ -73,31 +78,37 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Create foxforge/<slug> from origin/dev before running",
     )
-
     parser.add_argument(
         "--branch-name",
         help="Explicit foxforge/* branch name",
     )
-
     parser.add_argument(
         "--base-branch",
         default="dev",
-        help="Base branch used with --create-branch",
+        choices=["dev"],
+        help="Base branch used with --create-branch (origin/dev only)",
     )
-
     parser.add_argument(
         "--skip-discord",
         action="store_true",
         help="Do not dispatch the final Discord notification",
     )
-
     parser.add_argument(
         "--max-agent-time",
         default="20m",
         help="Qwen Code wall-clock budget per role",
     )
+    parser.add_argument("--max-test-time", default="20m", help="Python-enforced test process deadline")
 
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.branch_name and not args.create_branch:
+        parser.error("--branch-name requires --create-branch")
+    try:
+        duration_seconds(args.max_agent_time)
+        duration_seconds(args.max_test_time)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def read_task(args: argparse.Namespace) -> str:
@@ -112,12 +123,13 @@ def read_task(args: argparse.Namespace) -> str:
 def save_agent_result(
     run_dir: Path,
     result: AgentResult,
+    suffix: str = "",
 ) -> None:
     text = result.stdout
     if result.stderr:
         text += "\n\n--- STDERR ---\n" + result.stderr
 
-    (run_dir / f"{result.role}.txt").write_text(
+    (run_dir / f"{result.role}{suffix}.txt").write_text(
         text.strip() + "\n",
         encoding="utf-8",
     )
@@ -130,8 +142,12 @@ def require_agent(
     task: str,
     context: str,
     max_wall_time: str,
+    suffix: str = "",
 ) -> AgentResult:
-    print(f"[foxforge] starting {role}...")
+    print(f"[foxforge] starting {role}{suffix}...")
+    identity = (current_branch(repo), head_sha(repo))
+    readonly = role in {"architect", "reviewer", "helper", "reporter"}
+    before = diff(repo, "HEAD") if readonly else None
 
     result = run_project_agent(
         repo=repo,
@@ -141,33 +157,38 @@ def require_agent(
         max_wall_time=max_wall_time,
     )
 
-    save_agent_result(run_dir, result)
+    save_agent_result(
+        run_dir,
+        result,
+        suffix=suffix,
+    )
+    if (current_branch(repo), head_sha(repo)) != identity:
+        raise RuntimeError(f"{role} changed Git branch or HEAD; Python owns Git lifecycle")
+    if readonly and diff(repo, "HEAD") != before:
+        raise RuntimeError(f"Read-only agent {role} modified repository content")
 
     if not result.succeeded:
         raise RuntimeError(
             f"{role} process failed with exit code {result.exit_code}\n"
             f"{result.stderr}"
         )
+    if not result.stdout.strip():
+        raise RuntimeError(f"{role} returned empty output")
 
     print(
-        f"[foxforge] {role} complete "
+        f"[foxforge] {role}{suffix} complete "
         f"({result.duration_seconds:.1f}s)"
     )
-
     return result
 
 
 def parse_review_result(text: str) -> str:
-    match = re.search(
-        r"REVIEW_RESULT\s*:\s*(PASS|FAIL)",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    if not match:
-        return "UNPARSEABLE"
-
-    return match.group(1).upper()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if lines and lines[-1] in {"REVIEW_RESULT: PASS", "REVIEW_RESULT: FAIL"}:
+        verdicts = [line for line in lines if line.startswith("REVIEW_RESULT:")]
+        if len(verdicts) == 1:
+            return lines[-1].split(": ")[1]
+    return "UNPARSEABLE"
 
 
 def build_reviewer_task(original_task: str) -> str:
@@ -228,59 +249,29 @@ Do not run commands.
 Do not use tools.
 Do not infer or invent facts.
 Do not change any supplied value.
+Task and file values already escape backslashes and line breaks; print those supplied strings literally.
 """.strip()
 
 
-def dispatch_discord(
-    repo: Path,
-    state_path: Path,
-    reporter_path: Path,
-) -> bool:
-    dispatcher = repo / "orchestrator" / "reporter_dispatch.py"
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(dispatcher),
-            "--state",
-            str(state_path),
-            "--reporter",
-            str(reporter_path),
-        ],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-    if result.stdout:
-        print(result.stdout.strip())
-
-    if result.stderr:
-        print(result.stderr.strip(), file=sys.stderr)
-
-    return result.returncode == 0
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        return run(args)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(f"[foxforge] Setup failed: {exc}", file=sys.stderr)
+        return 1
 
 
-def main() -> int:
-    args = parse_args()
+def run(args: argparse.Namespace) -> int:
 
     repo = Path(args.repo).resolve()
     ensure_repo(repo)
-
+    ensure_clean_worktree(repo)
     task = read_task(args)
+    if not task:
+        raise ValueError("Task must not be empty")
 
-    run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = repo / "orchestrator" / "runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
-
-    (run_dir / "task.txt").write_text(
-        task + "\n",
-        encoding="utf-8",
-    )
-
-    branch = "(current branch)"
+    branch = current_branch(repo)
     base_ref = args.base_ref
 
     if args.create_branch:
@@ -294,8 +285,16 @@ def main() -> int:
             branch=branch,
             base_branch=args.base_branch,
         )
-
         base_ref = f"origin/{args.base_branch}"
+
+    if not branch or branch in {"main", "master", "dev"}:
+        raise ValueError("Use a task/sandbox branch, or --create-branch, before running agents")
+
+    base_ref = resolve_ref(repo, base_ref)
+    starting_head = head_sha(repo)
+    run_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:12]
+    run_dir = create_run_dir(repo, run_id)
+    (run_dir / "task.txt").write_text(task + "\n", encoding="utf-8")
 
     state = RunState(
         run_id=run_id,
@@ -308,6 +307,7 @@ def main() -> int:
     reporter_path = run_dir / "reporter.txt"
 
     try:
+        state.save(state_path)
         architect = require_agent(
             repo,
             run_dir,
@@ -317,8 +317,9 @@ def main() -> int:
             args.max_agent_time,
         )
         state.agents_completed.append("architect")
+        state.save(state_path)
 
-        implementer = require_agent(
+        require_agent(
             repo,
             run_dir,
             "implementer",
@@ -327,6 +328,7 @@ def main() -> int:
             args.max_agent_time,
         )
         state.agents_completed.append("implementer")
+        state.save(state_path)
 
         tester = require_agent(
             repo,
@@ -341,38 +343,37 @@ def main() -> int:
             args.max_agent_time,
         )
         state.agents_completed.append("tester")
+        state.save(state_path)
 
-        test_result = run_tests(
-            repo,
-            args.test_command,
-        )
-
+        test_result = run_tests(repo, args.test_command, timeout=duration_seconds(args.max_test_time))
         (run_dir / "tests.txt").write_text(
             test_result.output + "\n",
             encoding="utf-8",
         )
-
         state.test_exit_code = test_result.exit_code
         state.tests_passed = test_result.passed
         state.tests_failed = test_result.failed
-
-        reviewer_context = (
-            f"Authoritative test exit code: {test_result.exit_code}\n"
-            f"Tests passed: {test_result.passed}\n"
-            f"Tests failed: {test_result.failed}\n\n"
-            f"Tester output:\n{tester.stdout}"
-        )
+        state.test_counts_verified = test_result.counts_verified
+        state.save(state_path)
 
         reviewer = require_agent(
             repo,
             run_dir,
             "reviewer",
             build_reviewer_task(task),
-            reviewer_context,
+            (
+                f"Authoritative test exit code: {test_result.exit_code}\n"
+                f"Tests passed: {test_result.passed}\n"
+                f"Tests failed: {test_result.failed}\n\n"
+                f"Tester output:\n{tester.stdout}"
+            ),
             args.max_agent_time,
         )
         state.agents_completed.append("reviewer")
-        state.review_result = parse_review_result(reviewer.stdout)
+        state.review_result = parse_review_result(
+            reviewer.stdout
+        )
+        state.save(state_path)
 
         while (
             (
@@ -382,6 +383,8 @@ def main() -> int:
             and state.repair_cycles < REPAIR_LIMIT
         ):
             state.repair_cycles += 1
+            state.save(state_path)
+            suffix = f"-repair-{state.repair_cycles}"
 
             repair_context = (
                 f"Repair cycle: {state.repair_cycles}/{REPAIR_LIMIT}\n\n"
@@ -396,6 +399,7 @@ def main() -> int:
                 task,
                 repair_context,
                 args.max_agent_time,
+                suffix=suffix,
             )
 
             require_agent(
@@ -409,14 +413,16 @@ def main() -> int:
                     "Do not weaken tests."
                 ),
                 args.max_agent_time,
+                suffix=suffix,
             )
 
             test_result = run_tests(
                 repo,
                 args.test_command,
+                timeout=duration_seconds(args.max_test_time),
             )
 
-            (run_dir / f"tests-repair-{state.repair_cycles}.txt").write_text(
+            (run_dir / f"tests{suffix}.txt").write_text(
                 test_result.output + "\n",
                 encoding="utf-8",
             )
@@ -424,6 +430,8 @@ def main() -> int:
             state.test_exit_code = test_result.exit_code
             state.tests_passed = test_result.passed
             state.tests_failed = test_result.failed
+            state.test_counts_verified = test_result.counts_verified
+            state.save(state_path)
 
             reviewer = require_agent(
                 repo,
@@ -432,18 +440,21 @@ def main() -> int:
                 build_reviewer_task(task),
                 (
                     f"Repair cycle {state.repair_cycles} completed.\n"
-                    f"Authoritative test exit code: "
-                    f"{test_result.exit_code}\n"
+                    f"Authoritative test exit code: {test_result.exit_code}\n"
                     f"Tests passed: {test_result.passed}\n"
                     f"Tests failed: {test_result.failed}"
                 ),
                 args.max_agent_time,
+                suffix=suffix,
             )
 
             state.review_result = parse_review_result(
                 reviewer.stdout
             )
+            state.save(state_path)
 
+        if (current_branch(repo), head_sha(repo)) != (branch, starting_head):
+            raise RuntimeError("Branch or HEAD changed during the run")
         state.files_changed = changed_files(
             repo,
             base_ref,
@@ -470,6 +481,7 @@ def main() -> int:
             state.final_status = "READY_FOR_PLAYTEST"
         else:
             state.final_status = "BLOCKED"
+        state.save(state_path)
 
         helper_facts = json.dumps(
             {
@@ -494,9 +506,8 @@ def main() -> int:
             args.max_agent_time,
         )
         state.agents_completed.append("helper")
+        state.save(state_path)
 
-        # Reporter is the final agent. Its successful return is what makes
-        # "reporter" a verified completed agent.
         final_agent_list = [
             *state.agents_completed,
             "reporter",
@@ -504,9 +515,9 @@ def main() -> int:
 
         reporter_facts = json.dumps(
             {
-                "task": state.task,
+                "task": report_value(state.task),
                 "agents_completed": final_agent_list,
-                "files_changed": state.files_changed,
+                "files_changed": [report_value(path) for path in state.files_changed],
                 "tests_added": state.tests_added,
                 "tests_passed": state.tests_passed,
                 "tests_failed": state.tests_failed,
@@ -525,7 +536,6 @@ def main() -> int:
             reporter_facts,
             args.max_agent_time,
         )
-
         state.agents_completed.append("reporter")
 
         reporter_path.write_text(
@@ -535,27 +545,22 @@ def main() -> int:
 
         state.save(state_path)
 
-        # Discord is gated by deterministic Python validation.
-        if state.final_status == "READY_FOR_PLAYTEST":
-            validate_final_state(state)
-            validate_reporter_output(
-                state,
-                reporter.stdout,
-            )
+        validate_state_for_report(state)
+        validate_reporter_output(
+            state,
+            reporter.stdout,
+        )
 
-            if args.skip_discord:
-                state.notification_status = "SKIPPED"
-            else:
-                sent = dispatch_discord(
-                    repo,
-                    state_path,
-                    reporter_path,
-                )
-                state.notification_status = (
-                    "SENT" if sent else "FAILED"
-                )
+        if args.skip_discord:
+            state.notification_status = "SKIPPED"
         else:
-            state.notification_status = "NOT_SENT_BLOCKED"
+            sent = dispatch_report(
+                state_path,
+                reporter_path,
+            )
+            state.notification_status = (
+                "SENT" if sent else "FAILED"
+            )
 
         state.save(state_path)
 
@@ -563,35 +568,29 @@ def main() -> int:
         RuntimeError,
         StateValidationError,
         OSError,
+        ValueError,
         subprocess.SubprocessError,
+        KeyboardInterrupt,
     ) as exc:
         state.final_status = "BLOCKED"
         state.notification_status = "NOT_SENT_ERROR"
-        state.save(state_path)
+        try:
+            state.save(state_path)
+            (run_dir / "error.txt").write_text(str(exc) + "\n", encoding="utf-8")
+        except OSError as persistence_error:
+            print(f"[foxforge] Could not persist failure: {persistence_error}", file=sys.stderr)
 
-        (run_dir / "error.txt").write_text(
-            str(exc) + "\n",
-            encoding="utf-8",
+        print(
+            f"[foxforge] BLOCKED: {exc}",
+            file=sys.stderr,
         )
-
-        print(f"[foxforge] BLOCKED: {exc}", file=sys.stderr)
         print(f"[foxforge] run: {run_dir}")
         return 1
 
-    print()
-    print("FOXFORGE RUN COMPLETE")
-    print(f"Run: {run_id}")
-    print(f"Status: {state.final_status}")
-    print(
-        f"Tests: {state.tests_passed} passed, "
-        f"{state.tests_failed} failed"
-    )
-    print(f"Review: {state.review_result}")
-    print(f"Repair cycles: {state.repair_cycles}")
-    print(f"Notification: {state.notification_status}")
+    print(reporter.stdout)
     print(f"Artifacts: {run_dir}")
 
-    return 0
+    return 0 if state.final_status == "READY_FOR_PLAYTEST" and state.notification_status != "FAILED" else 1
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ For each finding report:
 - concrete example
 - recommended regression test
 
-If no credible defects exist, say PASS.
+The LAST non-empty line must be exactly REVIEW_RESULT: PASS or REVIEW_RESULT: FAIL. Emit exactly one REVIEW_RESULT line. A passing test run alone is insufficient.
 
 ## Notification Authority
 

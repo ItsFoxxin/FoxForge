@@ -31,6 +31,7 @@ def ready_state() -> RunState:
         tests_passed=12,
         tests_failed=0,
         test_exit_code=0,
+        test_counts_verified=True,
         review_result="PASS",
         repair_cycles=0,
         final_status="READY_FOR_PLAYTEST",
@@ -60,3 +61,26 @@ def test_reporter_output_must_match_exact_state() -> None:
             state,
             output.replace("12 passed", "13 passed"),
         )
+
+
+@pytest.mark.parametrize("name,value", [
+    ("tests_passed", -1), ("tests_failed", True), ("tests_added", "3"),
+    ("repair_cycles", 4), ("repair_cycles", -1), ("review_result", []),
+    ("final_status", []), ("files_changed", "calculator.py"),
+    ("agents_completed", ["architect"]), ("test_exit_code", False),
+    ("test_counts_verified", False), ("tests_passed", 0), ("branch", "main"),
+])
+def test_invalid_state_facts_cannot_be_reported(name, value):
+    state = ready_state()
+    setattr(state, name, value)
+    with pytest.raises(StateValidationError):
+        validate_state_for_report(state)
+
+
+def test_multiline_task_and_filename_are_escaped():
+    state = ready_state()
+    state.task = "First line\nSecond line"
+    state.files_changed = ["test\nodd.py"]
+    output = "\n".join(expected_reporter_lines(state))
+    assert "Task: First line\\nSecond line" in output
+    validate_reporter_output(state, output)

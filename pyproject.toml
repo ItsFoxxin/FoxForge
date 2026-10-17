@@ -15,7 +15,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
+    "pytest>=8.0,<10",
+    "build>=1.2,<2",
+    "wheel>=0.43",
 ]
 
 [project.scripts]
@@ -23,6 +25,10 @@ foxforge = "foxforge.coordinator:main"
 
 [tool.setuptools.packages.find]
 include = ["foxforge*"]
+
+[tool.setuptools.data-files]
+"share/foxforge/qwen-agents" = ["templates/qwen-agents/*.md"]
+"share/foxforge/scripts" = ["scripts/install-target.ps1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
