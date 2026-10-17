@@ -8,9 +8,13 @@ import tarfile
 import tempfile
 import venv
 import zipfile
+import argparse
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--wheelhouse", required=True, type=Path, help="Downloaded runtime dependency wheels for offline installation")
+    args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     wheel, = (root / "dist").glob("*.whl")
     sdist, = (root / "dist").glob("*.tar.gz")
@@ -22,6 +26,7 @@ def main() -> None:
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         assert len([name for name in names if "/qwen-agents/" in name and name.endswith(".md")]) == 6
+        assert any(name.endswith("/share/foxforge/qwen-settings.json") for name in names)
         assert not any("__pycache__" in name or ".pytest_cache" in name or "VALIDATION.txt" in name for name in names)
     with tempfile.TemporaryDirectory(prefix="foxforge-package-") as temp:
         directory = Path(temp)
@@ -33,11 +38,15 @@ def main() -> None:
         env = dict(os.environ)
         env.pop("PYTHONPATH", None)
         env.pop("DISCORD_WEBHOOK_URL", None)
+        for key in list(env):
+            if key.upper().startswith(("FOXFORGE_GITHUB_", "GITHUB_", "GH_", "_FOXFORGE_", "GIT_")):
+                env.pop(key)
         def check(*args):
             subprocess.run([str(arg) for arg in args], cwd=directory, env=env, check=True, timeout=120)
-        check(python, "-m", "pip", "install", "--no-index", "--no-deps", wheel)
+        check(python, "-m", "pip", "install", "--no-index", "--find-links", args.wheelhouse.resolve(), wheel)
+        check(python, "-c", "import jwt; from cryptography.hazmat.primitives.asymmetric import rsa")
         check(python, "-c", "import importlib, pkgutil, foxforge; [importlib.import_module(m.name) for m in pkgutil.walk_packages(foxforge.__path__, foxforge.__name__ + '.')]")
-        for module in ("foxforge", "foxforge.reporter_dispatch", "foxforge.notify_status", "foxforge.notifier"):
+        for module in ("foxforge", "foxforge.github_app", "foxforge.reporter_dispatch", "foxforge.notify_status", "foxforge.notifier"):
             check(python, "-m", module, "--help")
         check(console, "--help")
         failure = subprocess.run(

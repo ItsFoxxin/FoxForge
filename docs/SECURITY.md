@@ -25,7 +25,7 @@ validating Reporter output against verified run state.
 
 ## GitHub App
 
-A future GitHub App should use:
+GitHub App publishing uses:
 
 - repository-scoped installation
 - least-privilege permissions
@@ -47,7 +47,7 @@ The parent delegation wrapper should only need the Agent tool.
 
 FoxForge should not auto-merge to `main`.
 
-The future planned maximum authority (not implemented in the coordinator) is:
+With explicit --publish-pr, Python may perform:
 
 ```text
 create foxforge/* branch
@@ -72,4 +72,34 @@ agent process. Python removes DISCORD_WEBHOOK_URL from agent/test environments.
 All notification CLI aliases route through Reporter/state validation. The
 low-level Python HTTP function remains an internal transport, not a standalone
 arbitrary-message CLI. Webhook dispatch is mocked in CI; normal checks send no
-Discord messages. GitHub App authentication remains planned and unimplemented.
+Discord messages. GitHub App authentication and opt-in publishing are implemented in Python; live use still requires local verification.
+
+## Publishing credentials and authority
+
+GitHub App RSA signing uses PyJWT[crypto]. Installation tokens are scoped to the
+expected repository and permissions, cached in memory, and refreshed before
+expiry. Signing/auth errors discard response bodies and secret exception data.
+No JWT, token, key content, or authenticated remote URL is written to RunState,
+helper files, Git config, logs, Reporter facts, or Discord. Known secrets, PEM
+material, and recognizable GitHub tokens are redacted from outputs; leaked
+agent/test output fails validation.
+
+Qwen and authoritative test environments remove FOXFORGE_GITHUB_*, GITHUB_*,
+GH_*, GIT_* credential/trace overrides, private helper variables, SSH agent/helper
+variables, and DISCORD_WEBHOOK_URL. Host/system Git configuration and interactive
+credential prompts are disabled for these children. Model provider credentials
+needed by Qwen are not treated as publishing credentials.
+
+Python alone commits/pushes. It uses API-derived bot identity per command,
+external temporary token-free ASKPASS helpers, disabled Git hooks/signing,
+explicit current-branch/HEAD/content checks, canonical GitHub HTTPS destinations,
+and expected-ref leases after ancestry/ownership checks. Remote branches without
+an owned dev-targeting FoxForge PR are not overwritten. No direct dev, main, or
+master push, PR merge, release, or deployment is enabled.
+
+The App private key must be outside every target before agents start. Environment
+stripping does not sandbox a same-account shell/file tool: isolate untrusted
+repositories and model processes from unrelated credential files. Runtime run
+JSON is not signed against hostile local modification, and one worktree must
+not be shared by concurrent tasks. See GITHUB_APP.md for manual verification and
+partial-failure/ownership limitations. Normal tests mock all GitHub HTTP/pushes.

@@ -45,3 +45,14 @@ Repair cycles: <number>
 Status: <final status>
 Task and filename values escape backslashes and line breaks. Print supplied strings literally.
 
+
+If Python supplies publishing metadata, append exactly:
+Branch: <branch>
+Publishing: <publishing_status>
+Commit: <commit_sha>
+Remote branch: <remote_branch>
+PR: <pull_request_url>
+
+Use (none) for absent values exactly as supplied. Local READY_FOR_PLAYTEST does
+not imply a successful push or pull request. Never request, read, or echo GitHub
+App credentials. Publishing is owned exclusively by Python.

@@ -178,13 +178,13 @@ FoxForge does not auto-merge to `main`.
 
 ## GitHub bot integration
 
-A GitHub App is the intended future identity for FoxForge. See:
+GitHub App publishing is available through explicit --publish-pr opt-in. See:
 
 ```text
 docs/GITHUB_APP.md
 ```
 
-Bot authentication and PR creation are intentionally not wired into the coordinator yet. Local orchestration should be proven first.
+Python can authenticate, commit validated changes as the App bot, push only foxforge/*, and create a PR targeting dev. Credentials alone do not enable publishing. No automatic main integration is implemented.
 
 ## Deterministic validation and CLI behavior
 
@@ -197,7 +197,7 @@ Run agents only on a task or sandbox branch. For a disposable sandbox, create
 `foxforge/sandbox` before running. `main`, `master`, `dev`, and detached HEAD are
 rejected. All runs require a clean starting worktree so existing edits are not
 attributed to the current task. `--create-branch` branches from `origin/dev`
-after fetching origin. No commits, pushes, merges, or releases are performed.
+after fetching origin. Without --publish-pr, no commits or pushes are performed. Publishing may commit and push the task branch and open a PR to dev; merges and releases are never automatic.
 The base reference is resolved to a commit SHA before agent execution.
 
 Both `--max-agent-time` and `--max-test-time` default to `20m`. Python enforces
@@ -233,3 +233,32 @@ A wheel also installs templates and the installer under
 CI runs validation, model-free tests, then packaging on Windows and Linux.
 The package check installs the wheel in a fresh environment outside the source
 checkout and checks imports, templates, and module/console entrypoints.
+
+## Optional GitHub App publishing
+
+```powershell
+python -m foxforge.github_app --check --repository ItsFoxxin/FoxForge
+```
+
+For a validated task, explicitly add `--publish-pr` to the normal coordinator
+command. Python authenticates with `FOXFORGE_GITHUB_APP_ID`,
+`FOXFORGE_GITHUB_INSTALLATION_ID`, and `FOXFORGE_GITHUB_PRIVATE_KEY` (a PEM path
+outside target repositories). The App needs Metadata read, Contents write, and
+Pull requests write. It receives no main/dev direct-push or merge workflow.
+Qwen/authoritative test children do not inherit GitHub credentials or the Discord
+webhook. Publishing metadata is verified before Reporter/Discord output.
+
+The source package now depends on PyJWT[crypto]. See [GitHub App setup, safety
+policy, and exact disposable smoke-test commands](docs/GITHUB_APP.md).
+Local READY_FOR_PLAYTEST and publishing status are recorded separately; a
+commit/push/PR failure exits nonzero and saves partial progress safely.
+
+## CI and project-local Qwen files
+
+Canonical agent definitions and wrapper settings are versioned under
+`templates/`. CI checks their permission boundaries and exercises installation
+into a disposable target. A checkout does not need `.qwen/` to run tests; if
+project-local copies exist, agent parity is also checked. Actual Qwen runs still
+require the six role files installed into the target repository. The installer
+preserves existing settings and refuses to overwrite agents without `-Force`.
+This also fixes clean checkouts/uploaded sources that omit hidden `.qwen` files.

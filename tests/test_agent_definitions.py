@@ -12,8 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.mark.parametrize("role", PROJECT_ROLES)
 def test_project_agents_match_templates_and_keep_boundaries(role):
-    text = (ROOT / ".qwen" / "agents" / f"{role}.md").read_text(encoding="utf-8")
-    assert text == (ROOT / "templates" / "qwen-agents" / f"{role}.md").read_text(encoding="utf-8")
+    text = (ROOT / "templates" / "qwen-agents" / f"{role}.md").read_text(encoding="utf-8")
+    local = ROOT / ".qwen" / "agents" / f"{role}.md"
+    if local.exists():
+        assert local.read_text(encoding="utf-8") == text
     frontmatter = text.split("---", 2)[1]
     tools = re.findall(r"^  - (\w+)$", frontmatter, re.MULTILINE)
     if role in {"helper", "reporter"}:
@@ -26,5 +28,5 @@ def test_project_agents_match_templates_and_keep_boundaries(role):
 
 
 def test_repository_settings_only_allow_delegation():
-    settings = json.loads((ROOT / ".qwen" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((ROOT / "templates" / "qwen-settings.json").read_text(encoding="utf-8"))
     assert settings["permissions"]["allow"] == ["Agent"]

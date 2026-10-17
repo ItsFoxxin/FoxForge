@@ -7,6 +7,8 @@ from foxforge.agent_runner import AgentResult
 from foxforge.state import RunState
 from foxforge.state_validator import expected_reporter_lines
 from foxforge.test_runner import TestResult as ValidationResult
+from foxforge.git_manager import head_sha, run_git
+from foxforge.publishing import PublishingError
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -145,3 +147,67 @@ def test_readonly_role_modification_is_blocked(orchestration, monkeypatch):
 def test_setup_failure_is_clean(tmp_path, capsys):
     assert coordinator.main(["--repo", str(tmp_path), "--task", "x", "--test-command", "pytest"]) == 1
     assert "Setup failed" in capsys.readouterr().err
+
+
+def enable_publishing(orchestration, monkeypatch):
+    args, run_dir, calls, agent = orchestration
+    repo = __import__("pathlib").Path(args[1])
+    run_git(repo, "remote", "add", "origin", "https://github.com/owner/project.git")
+    run_git(repo, "update-ref", "refs/remotes/origin/dev", head_sha(repo))
+    monkeypatch.setattr(coordinator.AppConfig, "from_env", lambda: object())
+    monkeypatch.setattr(coordinator, "GitHubApp", lambda *args, **kwargs: object())
+    return [*args, "--publish-pr"], run_dir, calls, agent
+
+
+def test_publish_is_opt_in_even_when_credentials_exist(orchestration, monkeypatch):
+    args, run_dir, _, _ = orchestration
+    monkeypatch.setenv("FOXFORGE_GITHUB_APP_ID", "123")
+    monkeypatch.setattr(coordinator.AppConfig, "from_env", lambda: pytest.fail("Auth without --publish-pr"))
+    monkeypatch.setattr(coordinator, "publish_run", lambda *a: pytest.fail("Unexpected publish"))
+    assert coordinator.main(args) == 0
+    assert RunState.load(run_dir / "state.json").publishing_status == "NOT_REQUESTED"
+
+
+def test_publish_runs_after_helper_and_before_reporter(orchestration, monkeypatch):
+    args, run_dir, calls, _ = enable_publishing(orchestration, monkeypatch)
+    def publish(repo, state, path, app):
+        assert state.agents_completed == ["architect", "implementer", "tester", "reviewer", "helper"]
+        assert state.final_status == "READY_FOR_PLAYTEST" and state.test_counts_verified
+        assert state.validated_tree_hash and state.validated_head_sha
+        calls.append("publish")
+        state.commit_sha = "a" * 40
+        state.remote_branch = state.branch
+        state.pull_request_number = 12
+        state.pull_request_url = "https://github.com/owner/project/pull/12"
+        state.publishing_status = "PUBLISHED"
+        state.save(path)
+    monkeypatch.setattr(coordinator, "publish_run", publish)
+    assert coordinator.main(args) == 0
+    assert calls == ["architect", "implementer", "tester", "reviewer", "helper", "publish", "reporter"]
+    assert RunState.load(run_dir / "state.json").pull_request_number == 12
+
+
+def test_unsuccessful_validation_never_authenticates_or_publishes(orchestration, monkeypatch):
+    args, run_dir, _, _ = enable_publishing(orchestration, monkeypatch)
+    monkeypatch.setattr(coordinator, "run_tests", lambda *a, **k: ValidationResult([], 1, 0, 1, "1 failed", True))
+    monkeypatch.setattr(coordinator, "GitHubApp", lambda *a, **k: pytest.fail("Auth after failed validation"))
+    monkeypatch.setattr(coordinator, "publish_run", lambda *a: pytest.fail("Publishing failed validation"))
+    assert coordinator.main(args) == 1
+    state = RunState.load(run_dir / "state.json")
+    assert state.final_status == "BLOCKED" and state.publishing_status == "BLOCKED"
+    assert state.repair_cycles == 3 and state.commit_sha is None
+
+
+def test_publish_failure_is_reported_and_exits_nonzero(orchestration, monkeypatch):
+    args, run_dir, _, _ = enable_publishing(orchestration, monkeypatch)
+    def fail(repo, state, path, app):
+        state.publishing_status = "FAILED"
+        state.publishing_error = "Publishing failed during push"
+        state.save(path)
+        raise PublishingError(state.publishing_error)
+    monkeypatch.setattr(coordinator, "publish_run", fail)
+    assert coordinator.main(args) == 1
+    state = RunState.load(run_dir / "state.json")
+    assert state.final_status == "READY_FOR_PLAYTEST" and state.publishing_status == "FAILED"
+    assert "Publishing: FAILED" in (run_dir / "reporter.txt").read_text()
+    assert (run_dir / "publishing-error.txt").exists()

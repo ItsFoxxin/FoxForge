@@ -10,6 +10,7 @@ import subprocess
 import ctypes
 
 from .process import run_process
+from .security import child_environment, redact
 
 
 @dataclass
@@ -85,15 +86,16 @@ def parse_test_counts(output: str) -> tuple[int, int, bool]:
 
 def run_tests(repo: Path, command: str, timeout: float = 1200) -> TestResult:
     argv = split_command(command)
-    env = dict(os.environ)
-    env.pop("DISCORD_WEBHOOK_URL", None)
+    env = child_environment()
     try:
         result = run_process(argv, repo, timeout=timeout, env=env)
     except subprocess.TimeoutExpired as exc:
-        return TestResult(argv, 124, 0, 0, f"{exc.stdout or ''}\n{exc.stderr or ''}\nAuthoritative tests timed out")
+        return TestResult(argv, 124, 0, 0, redact(f"{exc.stdout or ''}\n{exc.stderr or ''}\nAuthoritative tests timed out"))
     except OSError as exc:
-        return TestResult(argv, 127, 0, 0, f"Could not start authoritative tests: {exc}")
+        return TestResult(argv, 127, 0, 0, redact(f"Could not start authoritative tests: {exc}"))
     output = (result.stdout + ("\n" + result.stderr if result.stderr else "")).strip()
+    if redact(output) != output:
+        return TestResult(argv, 1, 0, 0, redact(output) + "\nCredential material found in test output")
     passed, failed, verified = parse_test_counts(output)
     if not verified:
         output += "\nFoxForge could not verify test counts from a supported summary."

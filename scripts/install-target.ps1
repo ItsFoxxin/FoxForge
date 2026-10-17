@@ -28,6 +28,12 @@ foreach ($template in $templates) {
     Copy-Item -LiteralPath $template.FullName -Destination $target -Force:$Force
 }
 
+$settingsSource = Join-Path (Split-Path -Parent $source) "qwen-settings.json"
+$settingsTarget = Join-Path (Join-Path $repo ".qwen") "settings.json"
+if (-not (Test-Path -LiteralPath $settingsTarget)) {
+    Copy-Item -LiteralPath $settingsSource -Destination $settingsTarget
+}
+
 $gitignore = Join-Path $repo ".gitignore"
 
 if (-not (Test-Path $gitignore)) {

@@ -3,9 +3,14 @@ import os
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
+from .security import redact
+from . import __version__
 
 
 def send_discord(message: str) -> bool:
+    if redact(message) != message:
+        print("[notify] Refusing notification containing credential material")
+        return False
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
 
     if not webhook_url:
@@ -38,7 +43,7 @@ def send_discord(message: str) -> bool:
         data=data,
         headers={
             "Content-Type": "application/json",
-            "User-Agent": "FoxForge/0.1",
+            "User-Agent": f"FoxForge/{__version__}",
         },
         method="POST",
     )

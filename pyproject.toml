@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foxforge"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first deterministic multi-agent coding orchestrator for Qwen Code"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
     { name = "ItsFoxxin" }
 ]
-dependencies = []
+dependencies = ["PyJWT[crypto]>=2.10,<3"]
 
 [project.optional-dependencies]
 dev = [
@@ -27,6 +27,7 @@ foxforge = "foxforge.coordinator:main"
 include = ["foxforge*"]
 
 [tool.setuptools.data-files]
+"share/foxforge" = ["templates/qwen-settings.json"]
 "share/foxforge/qwen-agents" = ["templates/qwen-agents/*.md"]
 "share/foxforge/scripts" = ["scripts/install-target.ps1"]
 

@@ -5,6 +5,8 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from .security import redact
+from .process import run_process
 
 
 WINDOWS_DEFAULT_GIT = Path(r"C:\Program Files\Git\cmd\git.exe")
@@ -41,23 +43,24 @@ def run_git(
     repo: Path,
     *args: str,
     check: bool = True,
+    env: dict[str, str] | None = None,
+    safe: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     command = [git_executable(), *args]
 
     try:
-        result = subprocess.run(
-            command, cwd=repo, text=True, capture_output=True,
-            encoding="utf-8", errors="replace", timeout=120,
-        )
+        result = run_process(command, repo, timeout=120, env=env)
     except (OSError, subprocess.SubprocessError) as exc:
-        raise GitError(f"Could not execute Git: {exc}") from exc
+        raise GitError("Git process failed to start or exceeded its deadline" if safe else redact(f"Could not execute Git: {exc}")) from None
 
     if check and result.returncode != 0:
+        if safe:
+            raise GitError(f"Git operation failed (exit code {result.returncode}); credential-bearing diagnostics suppressed")
         raise GitError(
-            f"Git command failed ({result.returncode}): "
+            redact(f"Git command failed ({result.returncode}): "
             f"{' '.join(command)}\n\n"
             f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
+            f"STDERR:\n{result.stderr}")
         )
 
     return result

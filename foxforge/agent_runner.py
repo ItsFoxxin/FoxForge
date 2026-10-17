@@ -8,6 +8,7 @@ import subprocess
 import time
 
 from .process import duration_seconds, run_process
+from .security import child_environment, ensure_key_outside_repo, redact
 
 
 PROJECT_ROLES = ("architect", "implementer", "tester", "reviewer", "helper", "reporter")
@@ -118,6 +119,7 @@ def run_project_agent(
     if approval_mode != "default":
         raise AgentRunnerError("The parent wrapper requires default approval mode")
     timeout = duration_seconds(max_wall_time)
+    ensure_key_outside_repo(repo)
     qwen = find_qwen()
 
     prompt = build_delegate_prompt(
@@ -125,6 +127,8 @@ def run_project_agent(
         task=task,
         context=context,
     )
+    if redact(prompt) != prompt:
+        raise AgentRunnerError("Refusing to send credential material to an agent")
 
     # Only the parent delegation wrapper gets the Agent tool pre-approved.
     # The project-level role is still constrained by its own .qwen/agents
@@ -147,8 +151,7 @@ def run_project_agent(
 
     # Send the actual prompt through stdin. Do not also use -p/--prompt.
     # The model process must never inherit Python's notification credential.
-    env = dict(os.environ)
-    env.pop("DISCORD_WEBHOOK_URL", None)
+    env = child_environment()
     try:
         result = run_process(command, repo, input=prompt, timeout=timeout, env=env)
     except subprocess.TimeoutExpired as exc:
@@ -160,10 +163,12 @@ def run_project_agent(
 
     duration = time.monotonic() - started
 
+    stdout, stderr = redact(result.stdout.strip()), redact(result.stderr.strip())
+    leaked = stdout != result.stdout.strip() or stderr != result.stderr.strip()
     return AgentResult(
         role=role,
-        exit_code=result.returncode,
-        stdout=result.stdout.strip(),
-        stderr=result.stderr.strip(),
+        exit_code=1 if leaked else result.returncode,
+        stdout=stdout,
+        stderr=stderr + ("\nAgent returned credential material; output redacted" if leaked else ""),
         duration_seconds=duration,
     )

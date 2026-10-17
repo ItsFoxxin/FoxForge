@@ -39,3 +39,9 @@ FoxForge should branch from the latest `origin/dev` and create a short-lived
 Existing agent definitions are preserved unless you explicitly pass -Force.
 For custom validators, emit a supported authoritative test summary as described in README.md.
 
+
+Canonical wrapper settings are templates/qwen-settings.json. The installer creates
+settings only when absent; project-specific settings are preserved. Tests/CI do
+not require a checked-in .qwen directory, but target Qwen execution requires its
+installed role definitions. Publishing uses --publish-pr and origin/dev only.
+

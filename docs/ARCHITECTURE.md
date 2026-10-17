@@ -76,3 +76,14 @@ Reporter supplies the only final notification text. Python validates it exactly
 before displaying/dispatching it. BLOCKED or failed notification delivery returns
 a nonzero CLI exit status. Artifacts are stored under a repository path hash and
 unique run ID outside the target worktree.
+
+## Explicit publishing extension
+
+After the existing Helper stage and local READY_FOR_PLAYTEST gate, --publish-pr
+allows Python to authenticate, commit a frozen validated snapshot, conditionally
+push the owned foxforge/* ref, and create/reuse a PR to dev. Reporter remains the
+last role and receives only verified public metadata. Python validates that
+metadata against persisted RunState before any Discord dispatch. Publishing
+failures and local validation status remain distinct; partial side effects are
+persisted and never automatically reset. No agent gains Git lifecycle tools or
+GitHub credentials, and no automatic main integration is implemented.

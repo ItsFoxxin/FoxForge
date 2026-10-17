@@ -38,7 +38,7 @@ agents + deterministic validation
    ↓
 READY_FOR_PLAYTEST
    ↓
-future: bot-authored commit/push/PR
+explicit --publish-pr: Python bot commit/push/PR
    ↓
 PR -> dev
    ↓
@@ -75,3 +75,24 @@ After the limit, the run becomes `BLOCKED`.
 Sandbox runs require a non-protected task/sandbox branch with an existing commit.
 Unverified or zero passing test counts also trigger repair. A BLOCKED run exits 1.
 
+
+## Optional publication after local validation
+
+Add `--publish-pr` to opt in. After Helper, Python validates the frozen
+HEAD/content snapshot, authenticates as the installed App, commits, pushes only
+the foxforge/* task ref, and opens/reuses an owned PR targeting dev. Reporter then
+receives the verified commit/branch/PR metadata. Three repair cycles remains the
+maximum; a failed local gate never reaches App authentication or publishing.
+
+READY_FOR_PLAYTEST describes local validation. publishing_status separately
+records NOT_REQUESTED, PENDING, COMMITTED, PUSHED, PUBLISHED, FAILED, or BLOCKED.
+Every completed publishing step is persisted. A publication failure leaves the
+local validation outcome intact and exits nonzero. Python never resets an
+already-created commit/branch/PR automatically. Unknown remote branch ownership
+and orphan branches without an owned PR require human review before retry.
+
+The CLI never publishes just because environment variables exist. Use
+`python -m foxforge.github_app --check --repository owner/name` for an
+independent read-only authentication/access check. Exact preparation and manual
+push/PR smoke-test commands are in GITHUB_APP.md. The implementation session and
+normal CI do not perform real GitHub writes.
