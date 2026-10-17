@@ -42,6 +42,7 @@ def test_parent_only_preapproves_agent_and_fresh_processes(agent_repo, monkeypat
         assert agent_runner.run_project_agent(agent_repo, "architect", "task").succeeded
     assert len(calls) == 2
     for command, options in calls:
+        assert command[command.index("--core-tools") + 1] == "agent"
         assert command[command.index("--allowed-tools") + 1] == "agent"
         assert command[command.index("--approval-mode") + 1] == "default"
         assert "yolo" not in command and "--yolo" not in command

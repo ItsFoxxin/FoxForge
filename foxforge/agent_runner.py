@@ -138,8 +138,15 @@ def run_project_agent(
         "text",
         "--approval-mode",
         approval_mode,
+
+        # Hard-restrict the parent wrapper to delegation only.
+        "--core-tools",
+        "agent",
+
+        # Auto-approve the one tool the parent is allowed to use.
         "--allowed-tools",
         "agent",
+
         "--max-subagent-depth",
         "1",
         "--max-wall-time",
