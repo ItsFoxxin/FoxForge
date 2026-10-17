@@ -1,16 +1,32 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$RepoPath
+    [string]$RepoPath,
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
 
-$repo = (Resolve-Path $RepoPath).Path
-$source = Join-Path $PSScriptRoot "..\templates\qwen-agents"
-$target = Join-Path $repo ".qwen\agents"
+$repo = (Resolve-Path -LiteralPath $RepoPath).Path
+$source = Join-Path (Join-Path $PSScriptRoot "..") "templates/qwen-agents"
+if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+    # Wheel layout: share/foxforge/{scripts,qwen-agents}.
+    $source = Join-Path (Join-Path $PSScriptRoot "..") "qwen-agents"
+}
+if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+    throw "FoxForge agent templates were not found"
+}
+$target = Join-Path (Join-Path $repo ".qwen") "agents"
+$templates = @(Get-ChildItem -LiteralPath $source -Filter "*.md" -File)
+foreach ($template in $templates) {
+    if ((Test-Path -LiteralPath (Join-Path $target $template.Name)) -and -not $Force) {
+        throw "Agent already exists: $($template.Name). Review customizations or explicitly pass -Force."
+    }
+}
 
 New-Item -ItemType Directory -Force -Path $target | Out-Null
-Copy-Item -Path (Join-Path $source "*.md") -Destination $target -Force
+foreach ($template in $templates) {
+    Copy-Item -LiteralPath $template.FullName -Destination $target -Force:$Force
+}
 
 $gitignore = Join-Path $repo ".gitignore"
 
@@ -18,10 +34,10 @@ if (-not (Test-Path $gitignore)) {
     New-Item -ItemType File -Path $gitignore | Out-Null
 }
 
-$content = Get-Content $gitignore -Raw
+$content = [string](Get-Content -LiteralPath $gitignore -Raw)
 
-if ($content -notmatch "(?m)^\.foxforge/$") {
-    Add-Content -Path $gitignore -Value "`n# FoxForge runtime`n.foxforge/"
+if ($content -notmatch "(?m)^\.foxforge/[\t ]*\r?$") {
+    Add-Content -LiteralPath $gitignore -Value "`n# FoxForge runtime`n.foxforge/" -Encoding utf8
 }
 
 Write-Host "Installed FoxForge Qwen agents into: $target"

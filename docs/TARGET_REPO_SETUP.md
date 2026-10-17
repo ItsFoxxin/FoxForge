@@ -27,11 +27,15 @@ role boundaries.
 The target repo should also have its own project instructions, architecture docs,
 and authoritative test command.
 
-For Dead Circuit, the intended authoritative validation command is:
+For a Python target, an example authoritative validation command is:
 
 ```text
-python tools/dev.py validate
+python -m pytest -v
 ```
 
 FoxForge should branch from the latest `origin/dev` and create a short-lived
 `foxforge/<task>` branch.
+
+Existing agent definitions are preserved unless you explicitly pass -Force.
+For custom validators, emit a supported authoritative test summary as described in README.md.
+

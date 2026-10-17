@@ -48,3 +48,5 @@ You must never:
 
 Return your results to the coordinator only.
 The Reporter role is the only role authorized to produce user-facing notifications.
+Do not commit, push, merge, switch branches, or modify Git configuration.
+

@@ -1,6 +1,9 @@
-# Agent Lab Instructions
+# FoxForge Repository Instructions
 
-This repository is a disposable agent test environment.
+FoxForge is an existing local-first deterministic orchestrator for Qwen Code.
+Preserve its Python-owned orchestration and six project-agent boundaries.
+Only the calculator example and temporary test fixtures are disposable targets.
+Do not operate on unrelated repositories.
 
 Rules:
 

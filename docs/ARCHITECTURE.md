@@ -64,3 +64,15 @@ tester-repair-1.txt
 tests-repair-1.txt
 reviewer-repair-1.txt
 ```
+
+## Deterministic completion
+
+Python freezes the comparison base to a commit SHA, enforces process deadlines,
+verifies test counts, and requires the Reviewer's single final verdict line.
+At most three repair cycles run. Progress snapshots are written atomically;
+READY_FOR_PLAYTEST requires a zero test exit code, verified nonzero passing
+counts, no failures, Reviewer PASS, and all six completed roles.
+Reporter supplies the only final notification text. Python validates it exactly
+before displaying/dispatching it. BLOCKED or failed notification delivery returns
+a nonzero CLI exit status. Artifacts are stored under a repository path hash and
+unique run ID outside the target worktree.

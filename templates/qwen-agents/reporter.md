@@ -43,3 +43,5 @@ Tests: <passed> passed, <failed> failed
 Review: <review result>
 Repair cycles: <number>
 Status: <final status>
+Task and filename values escape backslashes and line breaks. Print supplied strings literally.
+

@@ -7,6 +7,11 @@ import shutil
 import subprocess
 import time
 
+from .process import duration_seconds, run_process
+
+
+PROJECT_ROLES = ("architect", "implementer", "tester", "reviewer", "helper", "reporter")
+
 
 @dataclass
 class AgentResult:
@@ -28,7 +33,10 @@ class AgentRunnerError(RuntimeError):
 def find_qwen() -> str:
     configured = os.getenv("FOXFORGE_QWEN_EXE")
     if configured:
-        return configured
+        detected = shutil.which(configured)
+        if detected:
+            return detected
+        raise AgentRunnerError("FOXFORGE_QWEN_EXE does not identify an executable")
 
     detected = shutil.which("qwen")
     if detected:
@@ -36,17 +44,27 @@ def find_qwen() -> str:
 
     raise AgentRunnerError(
         "Qwen Code executable was not found. "
-        "Set FOXFORGE_QWEN_EXE to the full path of qwen, qwen.cmd, or qwen.exe."
+        "Set FOXFORGE_QWEN_EXE to the full path of "
+        "qwen, qwen.cmd, or qwen.exe."
     )
 
 
-def _build_process_command(qwen: str, args: list[str]) -> list[str]:
+def _build_process_command(qwen: str, args: list[str]) -> list[str] | str:
     suffix = Path(qwen).suffix.lower()
 
     if suffix in {".cmd", ".bat"}:
-        comspec = os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe")
+        if os.name != "nt":
+            raise AgentRunnerError("Windows Qwen launchers require Windows")
+        if any(ch in qwen for ch in '%!^&|<>\r\n"'):
+            raise AgentRunnerError("Unsafe characters in Qwen launcher path")
+        comspec = os.environ.get(
+            "COMSPEC",
+            r"C:\Windows\System32\cmd.exe",
+        )
         command_line = subprocess.list2cmdline([qwen, *args])
-        return [comspec, "/d", "/s", "/c", command_line]
+        # cmd.exe uses different quoting from the Windows C argv convention.
+        # Passing this as an argv list would introduce literal backslash-quotes.
+        return f'{subprocess.list2cmdline([comspec])} /d /s /c "{command_line}"'
 
     return [qwen, *args]
 
@@ -90,9 +108,16 @@ def run_project_agent(
     role: str,
     task: str,
     context: str = "",
-    approval_mode: str = "auto",
+    approval_mode: str = "default",
     max_wall_time: str = "20m",
 ) -> AgentResult:
+    if role not in PROJECT_ROLES:
+        raise AgentRunnerError(f"Unknown project agent: {role}")
+    if not (repo / ".qwen" / "agents" / f"{role}.md").is_file():
+        raise AgentRunnerError(f"Missing project agent definition: {role}")
+    if approval_mode != "default":
+        raise AgentRunnerError("The parent wrapper requires default approval mode")
+    timeout = duration_seconds(max_wall_time)
     qwen = find_qwen()
 
     prompt = build_delegate_prompt(
@@ -101,6 +126,9 @@ def run_project_agent(
         context=context,
     )
 
+    # Only the parent delegation wrapper gets the Agent tool pre-approved.
+    # The project-level role is still constrained by its own .qwen/agents
+    # tool allowlist.
     args = [
         "--output-format",
         "text",
@@ -115,18 +143,20 @@ def run_project_agent(
     ]
 
     command = _build_process_command(qwen, args)
-
     started = time.monotonic()
 
-    result = subprocess.run(
-        command,
-        cwd=repo,
-        input=prompt,
-        text=True,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace"
-    )
+    # Send the actual prompt through stdin. Do not also use -p/--prompt.
+    # The model process must never inherit Python's notification credential.
+    env = dict(os.environ)
+    env.pop("DISCORD_WEBHOOK_URL", None)
+    try:
+        result = run_process(command, repo, input=prompt, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired as exc:
+        result = subprocess.CompletedProcess(
+            command, 124, exc.stdout or "", (exc.stderr or "") + "\nAgent timed out",
+        )
+    except OSError as exc:
+        raise AgentRunnerError(f"Could not start {role}: {exc}") from exc
 
     duration = time.monotonic() - started
 

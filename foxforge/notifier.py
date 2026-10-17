@@ -1,8 +1,8 @@
-import argparse
 import json
 import os
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 
 def send_discord(message: str) -> bool:
@@ -12,9 +12,23 @@ def send_discord(message: str) -> bool:
         print("[notify] DISCORD_WEBHOOK_URL is not configured")
         return False
 
+    try:
+        parsed = urlsplit(webhook_url)
+        if parsed.scheme != "https" or parsed.hostname not in {
+            "discord.com", "discordapp.com", "canary.discord.com", "ptb.discord.com",
+        } or not parsed.path.startswith("/api/webhooks/"):
+            print("[notify] Invalid Discord webhook URL")
+            return False
+    except ValueError:
+        return False
+    if not message.strip() or len(message.encode("utf-16-le")) // 2 > 2000:
+        print("[notify] Reporter message is empty or exceeds Discord's content limit")
+        return False
+
     payload = {
         "content": message,
         "username": "FoxForge",
+        "allowed_mentions": {"parse": []},
     }
 
     data = json.dumps(payload).encode("utf-8")
@@ -35,28 +49,19 @@ def send_discord(message: str) -> bool:
 
     except urllib.error.HTTPError as exc:
         print(f"[notify] Discord HTTP error: {exc.code}")
-    except urllib.error.URLError as exc:
-        print(f"[notify] Discord connection error: {exc.reason}")
+    except urllib.error.URLError:
+        print("[notify] Discord connection error")
+    except (OSError, ValueError):
+        print("[notify] Discord request failed")
 
     return False
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--message",
-        required=True,
-        help="Message to send to Discord",
-    )
-    args = parser.parse_args()
-
-    if send_discord(args.message):
-        print("Discord notification sent")
-        raise SystemExit(0)
-
-    print("Discord notification failed")
-    raise SystemExit(1)
+def main() -> int:
+    """Legacy module invocation now uses the same validated dispatch path."""
+    from .reporter_dispatch import main as dispatch_main
+    return dispatch_main()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
