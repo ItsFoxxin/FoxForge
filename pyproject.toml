@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foxforge"
+version = "0.1.0"
+description = "Local-first deterministic multi-agent coding orchestrator for Qwen Code"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "ItsFoxxin" }
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+foxforge = "foxforge.coordinator:main"
+
+[tool.setuptools.packages.find]
+include = ["foxforge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
