@@ -8,7 +8,7 @@ from foxforge.security import child_environment, redact, register_secret
 from foxforge.state import RunState
 
 
-@pytest.mark.parametrize("name", ["FOXFORGE_GITHUB_APP_ID", "FOXFORGE_GITHUB_INSTALLATION_ID", "FOXFORGE_GITHUB_PRIVATE_KEY", "GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_VALUE_0", "GIT_TRACE_CURL", "SSH_AUTH_SOCK", "DISCORD_WEBHOOK_URL", "_FOXFORGE_INSTALLATION_TOKEN"])
+@pytest.mark.parametrize("name", ["FOXFORGE_GITHUB_APP_ID", "FOXFORGE_GITHUB_INSTALLATION_ID", "FOXFORGE_GITHUB_PRIVATE_KEY", "FOXFORGE_PLANNER_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_VALUE_0", "GIT_TRACE_CURL", "SSH_AUTH_SOCK", "DISCORD_WEBHOOK_URL", "_FOXFORGE_INSTALLATION_TOKEN"])
 def test_child_environment_strips_authentication(name, monkeypatch):
     monkeypatch.setenv(name, "credential-must-not-be-inherited")
     env = child_environment()
@@ -22,6 +22,11 @@ def test_registered_credentials_and_pem_are_redacted():
     output = redact(text)
     assert "installation-secret" not in output and "example" not in output
     assert "REDACTED" in output
+
+
+def test_planner_api_key_environment_value_is_redacted(monkeypatch):
+    monkeypatch.setenv("FOXFORGE_PLANNER_API_KEY", "planner-secret-for-tests")
+    assert "planner-secret" not in redact("value=planner-secret-for-tests")
 
 
 def test_runstate_refuses_to_persist_credentials(tmp_path):

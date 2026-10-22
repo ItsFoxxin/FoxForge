@@ -1,5 +1,17 @@
 # FoxForge
 
+The adaptive planning foundation is available through `foxforge projects`,
+`foxforge issues discover`, `foxforge tasks plan`, and `foxforge tasks show`.
+It verifies repository authorization, records issue discovery without model use,
+requires a trusted `foxforge:plan` label event for the exact issue revision,
+performs commit-pinned read-only discovery, validates a bounded capability-based
+plan, and stops at human review. See
+[the foundation deployment guide](docs/FOUNDATION_DEPLOYMENT.md).
+
+This planning path is separate from the legacy implementation worker below.
+It does not modify source, execute repository commands, publish branches, create
+pull requests, deploy applications, or access infrastructure.
+
 GitHub Issue intake is available through `foxforge issue <number>` and the
 sequential `foxforge watch` worker. Issue authors and ready-label actors must
 both have numeric IDs in `FOXFORGE_ALLOWED_GITHUB_USER_IDS`. Missing or malformed

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode
 import re
 
@@ -14,8 +15,8 @@ from .actor_authorization import ActorPolicy
 
 class IssueAPI:
     def __init__(self, app: GitHubApp):
-        if not app.issues or not app.publishing:
-            raise IssueError("Issue intake requires an explicit Issues-write App client")
+        if not app.issues:
+            raise IssueError("Issue access requires an explicit Issues App client")
         self.app = app
         self.repository = app.repository
         self.prefix = f"/repos/{self.repository}"
@@ -56,7 +57,27 @@ class IssueAPI:
                 raise IssueError("Issue listing changed during intake; retry the poll")
         return sorted(result, key=lambda task: (timestamp(task.created_at), task.number))
 
+    def list_open(self) -> list[IssueTask]:
+        rows = self.pages(f"{self.prefix}/issues", state="open", sort="created", direction="asc")
+        result = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise IssueError("Invalid issue listing")
+            if "pull_request" in row:
+                continue
+            task = IssueTask.from_api(self.repository, row.get("number"), row)
+            if task.state != "open":
+                raise IssueError("Issue listing changed during discovery; retry the poll")
+            result.append(task)
+        return sorted(result, key=lambda task: (timestamp(task.created_at), task.number))
+
     def ready_approval(self, number: int, policy: ActorPolicy) -> tuple[int, str, int] | None:
+        return self.approval_for_label(number, READY, policy)
+
+    def approval_for_label(self, number: int, label_name: str, policy: ActorPolicy, *,
+                           not_before: str | None = None, max_age_hours: int | None = None) -> tuple[int, str, int] | None:
+        if not isinstance(label_name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,99}", label_name):
+            raise IssueError("Invalid approval label")
         relevant = []
         for event in self.pages(f"{self.prefix}/issues/{number}/events"):
             if not isinstance(event, dict):
@@ -64,13 +85,21 @@ class IssueAPI:
             label = event.get("label") or {}
             if not isinstance(label, dict):
                 raise IssueError("Invalid issue approval label")
-            if event.get("event") in {"labeled", "unlabeled"} and label.get("name") == READY:
+            if event.get("event") in {"labeled", "unlabeled"} and label.get("name") == label_name:
                 if type(event.get("id")) is not int or event["id"] <= 0:
                     raise IssueError("Invalid issue approval identity")
                 relevant.append(event)
         if not relevant:
             return None
         latest = max(relevant, key=lambda row: (timestamp(row.get("created_at")), row["id"]))
+        approved_at = timestamp(latest.get("created_at"))
+        if not_before is not None and approved_at < timestamp(not_before):
+            return None
+        if max_age_hours is not None:
+            if type(max_age_hours) is not int or not 1 <= max_age_hours <= 24 * 30:
+                raise IssueError("Invalid approval freshness limit")
+            if approved_at < datetime.now(timezone.utc) - timedelta(hours=max_age_hours):
+                return None
         actor = latest.get("actor")
         if latest["event"] != "labeled" or not isinstance(actor, dict) or actor.get("type") != "User" or type(actor.get("id")) is not int or actor["id"] <= 0:
             return None
@@ -97,6 +126,8 @@ class IssueAPI:
         return None
 
     def transition(self, number: int, target: str) -> IssueTask:
+        if not self.app.publishing:
+            raise IssueError("Issue mutation requires an explicit Issues-write App client")
         if target not in ISSUE_LABELS or target == READY:
             raise IssueError("Invalid automatic label transition")
         current = self.get(number)
@@ -110,6 +141,8 @@ class IssueAPI:
         return updated
 
     def comment(self, state: RunState, body: str, kind: str) -> int:
+        if not self.app.publishing:
+            raise IssueError("Issue mutation requires an explicit Issues-write App client")
         if kind not in {"claim", "result"} or redact(body) != body:
             raise IssueError("Unsafe issue comment")
         marker = f"<!-- foxforge-issue:{self.repository.casefold()}:{state.github_issue_number}:{state.run_id}:{kind} -->"

@@ -23,7 +23,7 @@ def redact(text: str) -> str:
         upper = name.upper()
         if value and len(value) >= 8 and (
             upper in {"DISCORD_WEBHOOK_URL", "GITHUB_TOKEN", "GH_TOKEN", "FOXFORGE_GITHUB_PRIVATE_KEY"}
-            or upper.endswith("_TOKEN") or upper.startswith("GIT_CONFIG_VALUE_")
+            or upper.endswith("_TOKEN") or upper.endswith("_API_KEY") or upper.startswith("GIT_CONFIG_VALUE_")
         ):
             values.add(value)
     for value in sorted(values, key=len, reverse=True):
@@ -37,7 +37,7 @@ def child_environment() -> dict[str, str]:
     env = {
         key: value for key, value in os.environ.items()
         if not key.upper().startswith(blocked)
-        and key.upper() not in {"FOXFORGE_ALLOWED_GITHUB_USER_IDS", "DISCORD_WEBHOOK_URL", "SSH_ASKPASS", "SSH_AUTH_SOCK", "SSH_AGENT_PID", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "CDPATH", "PROMPT_COMMAND", "PS4", "SSLKEYLOGFILE"}
+        and key.upper() not in {"FOXFORGE_ALLOWED_GITHUB_USER_IDS", "FOXFORGE_PLANNER_API_KEY", "DISCORD_WEBHOOK_URL", "SSH_ASKPASS", "SSH_AUTH_SOCK", "SSH_AGENT_PID", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "CDPATH", "PROMPT_COMMAND", "PS4", "SSLKEYLOGFILE"}
     }
     # Do not let an agent's Git subprocess use host credential helpers implicitly.
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,

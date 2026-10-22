@@ -1,5 +1,22 @@
 # Security
 
+## Adaptive planning authorization
+
+The planning foundation separates issue authors from trusted approvers. Reading
+and storing an issue invokes no model. Planning requires a current
+`foxforge:plan` label applied by an allowlisted numeric GitHub user with verified
+repository write, maintain, or admin permission. Approval is bound to the issue
+revision and must be no older than seven days; later issue activity requires a
+fresh label event. FoxForge re-reads the issue after validating the event and
+refuses task creation if the issue changed during that check. A consumed
+approval creates at most one durable task.
+
+Planning uses only commit-pinned repository reads. Capability and tool risk are
+registered in Python; model output cannot grant write, deployment, infrastructure,
+or credential access. The current milestone does not execute repository code.
+The optional planner endpoint receives selected repository context, so operators
+must approve its provider and data policy before a live run.
+
 ## Issue intake
 
 Issues are untrusted external requirements. Both issue author and ready-label

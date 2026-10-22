@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foxforge"
-version = "0.2.0"
-description = "Local-first deterministic multi-agent coding orchestrator for Qwen Code"
+version = "0.3.0"
+description = "Local-first adaptive planning and deterministic multi-agent orchestration"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [

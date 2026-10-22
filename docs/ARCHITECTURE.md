@@ -1,5 +1,24 @@
 # Architecture
 
+## Adaptive planning foundation
+
+The version 0.3 planning path is a separate control-plane entrypoint. A central
+capability catalog describes domains, task types, tool operations, risk classes,
+and permission profiles. Models may select registered capabilities in a strict
+acyclic plan; Python rejects unknown capabilities and never treats the selection
+as permission to execute a tool.
+
+SQLite stores registered project identity, issue revision snapshots, numeric
+actor authorization evidence, one task per authorization, task state, and audit
+events. Repository discovery reads a fixed Git commit and does not execute
+repository code. Planning stops at `awaiting_human_review` and writes deterministic
+JSON and Markdown artifacts. See [FOUNDATION_DEPLOYMENT.md](FOUNDATION_DEPLOYMENT.md).
+
+The catalog already distinguishes development and documentation domains and the
+`read`, `propose`, `write`, `deploy`, and `high_risk` classes. Infrastructure
+adapters are intentionally absent. Future adapters must pass the same external
+authorization and audit boundary rather than adding privileges through prompts.
+
 Issue intake is an outer Python layer: immutable IssueTask snapshots, bounded
 IssueAPI calls, external OS locks/reservations, and a CLI router feed a prepared
 RunState into the existing coordinator. Internal hooks validate the claim before

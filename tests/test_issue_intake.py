@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import pytest
 
 from foxforge import coordinator, intake_storage, issue_intake, run_storage
+from foxforge.actor_authorization import ActorPolicy
 from foxforge.agent_runner import AgentResult
 from foxforge.github_app import BotIdentity, GitHubAppError
 from foxforge.git_manager import head_sha, run_git
@@ -541,6 +542,14 @@ def test_polling_skips_form_submissions_without_owner_approval(intake):
     app.permission = "read"
     assert issue_intake.main("watch", [*args[1:], "--once"]) == 0
     assert not calls and not states(root) and READY in labels(app)
+
+
+def test_planning_approval_must_follow_current_issue_revision(intake):
+    _, app, _, _, _ = intake
+    policy = ActorPolicy(frozenset({5}))
+    assert IssueAPI(app).approval_for_label(
+        47, READY, policy, not_before="2026-10-03T00:00:00Z"
+    ) is None
 
 
 @pytest.mark.parametrize("option", [[], ["--poll-interval", "0"], ["--poll-interval", "nan"]])

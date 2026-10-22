@@ -23,6 +23,7 @@ def main() -> None:
         assert any(name.endswith("/tests/conftest.py") for name in sources)
         assert any(name.endswith("/ci/check_distribution.py") for name in sources)
         assert not any("__pycache__" in name or ".pytest_cache" in name or "VALIDATION.txt" in name for name in sources)
+        assert not any("name clash" in name.casefold() for name in sources)
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         assert len([name for name in names if "/qwen-agents/" in name and name.endswith(".md")]) == 6
@@ -30,6 +31,7 @@ def main() -> None:
         assert any(name.endswith("/share/foxforge/worker-config.example.json") for name in names)
         assert any(name.endswith("/share/foxforge/scripts/start-worker.ps1") for name in names)
         assert not any("__pycache__" in name or ".pytest_cache" in name or "VALIDATION.txt" in name for name in names)
+        assert not any("name clash" in name.casefold() for name in names)
     with tempfile.TemporaryDirectory(prefix="foxforge-package-") as temp:
         directory = Path(temp)
         environment = directory / "venv"
@@ -54,6 +56,10 @@ def main() -> None:
         for command in ("issue", "watch"):
             check(python, "-m", "foxforge", command, "--help")
             check(console, command, "--help")
+        for command in ("projects", "issues", "tasks", "capabilities"):
+            check(python, "-m", "foxforge", command, "--help")
+            check(console, command, "--help")
+        check(console, "capabilities", "list")
         failure = subprocess.run(
             [str(python), "-m", "foxforge", "--repo", str(directory), "--task", "validation", "--test-command", "pytest", "--skip-discord"],
             cwd=directory, env=env, capture_output=True, text=True, timeout=120,

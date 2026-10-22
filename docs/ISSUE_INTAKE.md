@@ -5,7 +5,9 @@ the issue, and calls the existing coordinator. Six fresh Qwen roles, Python
 tests/counts, exact Reviewer/Reporter validation and the three-repair cap remain
 unchanged. Python owns Git, labels, deterministic comments, publishing and
 Discord dispatch. Issue prose is untrusted requirements, never Python policy.
-This is an unreleased extension to the current 0.2.0 source.
+This page documents the legacy implementation intake retained in 0.3.0. The
+planning-only `foxforge:plan` path is documented separately in
+[FOUNDATION_DEPLOYMENT.md](FOUNDATION_DEPLOYMENT.md).
 
 ## Setup and permissions
 
