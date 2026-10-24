@@ -1,5 +1,30 @@
 # Architecture
 
+## 0.3.1 platform boundaries
+
+The existing control plane remains a small Python application with SQLite,
+static capability definitions and deterministic authorization. `configuration.py`
+loads operator-owned task/model policies and protected credential files.
+`platform_contracts.py` names task categories and approval scope data; it does not
+authenticate approvals or execute tools. Future adapters must implement identity,
+scope, freshness, single-use and audit gates outside models. No separate research
+or infrastructure orchestration service has been added.
+
+`model_requests` is an additive schema-1 table. Every inference attempt reserves
+its request and conservative token units in an immediate transaction before HTTP,
+binds the operator policy for the task, and records a sanitized outcome. Unknown
+or interrupted consumption is not refunded. Task states refuse automatic resumes
+from blocked/terminal states. SQLite is local to one host; backups require all
+writers to be quiesced for artifact consistency.
+
+The container entrypoint exposes only diagnostics, storage, capabilities, project
+registration, issue discovery and planning. It cannot route to the legacy worker.
+Model output is strict proposal data and never reaches a command executor.
+FreeLLMAPI is a distinct trusted gateway with separate credentials and storage.
+Its provider-side routing/probes are not FoxForge request-budget measurements.
+Workload priority scheduling, coding workers, infra tools, research, dashboards,
+notification transports and privileged execution remain future work.
+
 ## Adaptive planning foundation
 
 The version 0.3 planning path is a separate control-plane entrypoint. A central

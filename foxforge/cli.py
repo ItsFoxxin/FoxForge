@@ -5,7 +5,10 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in {"projects", "issues", "tasks", "capabilities"}:
+    if argv and argv[0] == "doctor":
+        from .doctor import main as doctor_main
+        return doctor_main(argv[1:])
+    if argv and argv[0] in {"projects", "issues", "tasks", "capabilities", "storage"}:
         from .foundation_cli import main as foundation_main
         return foundation_main(argv)
     if argv and argv[0] in {"issue", "watch"}:

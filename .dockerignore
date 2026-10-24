@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!pyproject.toml
+!MANIFEST.in
+!README.md
+!AGENTS.md
+!foxforge/
+!foxforge/*.py
+!templates/
+!templates/**
+!scripts/
+!scripts/*.ps1
+!deployment/
+!deployment/requirements-build.txt
+!deployment/requirements-runtime.txt

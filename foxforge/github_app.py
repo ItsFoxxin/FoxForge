@@ -14,6 +14,7 @@ import time
 from urllib import error, parse, request
 
 from .security import register_secret
+from .configuration import private_file
 from . import __version__
 
 
@@ -52,9 +53,12 @@ class AppConfig:
                 raise ValueError
             if not installation.isascii() or not installation.isdecimal() or int(installation) <= 0:
                 raise ValueError
-            path = Path(key).expanduser().resolve()
+            if not Path(key).is_absolute():
+                raise ValueError
+            path = Path(key).resolve()
             if not path.is_file() or path.stat().st_size > 128 * 1024:
                 raise ValueError
+            private_file(path)
             return cls(int(app), int(installation), path)
         except (KeyError, ValueError, OSError):
             raise GitHubAppError("Missing or invalid GitHub App environment configuration") from None

@@ -13,7 +13,7 @@ def isolate_credentials_and_network(monkeypatch):
     import urllib.request
     security._secrets.clear()
     for key in list(os.environ):
-        if key.upper().startswith(("FOXFORGE_GITHUB_", "FOXFORGE_PLANNER_", "_FOXFORGE_")) or key.upper() in {"FOXFORGE_ALLOWED_GITHUB_USER_IDS", "GITHUB_TOKEN", "GH_TOKEN", "DISCORD_WEBHOOK_URL"}:
+        if key.upper().startswith(("FOXFORGE_", "_FOXFORGE_")) or key.upper() in {"GITHUB_TOKEN", "GH_TOKEN", "DISCORD_WEBHOOK_URL"}:
             monkeypatch.delenv(key)
     def reject_http(*args, **kwargs):
         raise AssertionError("Real HTTP is forbidden in FoxForge unit tests")

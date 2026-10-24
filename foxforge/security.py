@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 _secrets: set[str] = set()
-_TOKEN = re.compile(r"(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]+)")
+_TOKEN = re.compile(r"(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]+|freellmapi-[A-Za-z0-9_-]+|sk-cp-[A-Za-z0-9_-]+)")
 _PEM = re.compile(r"-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----.*?(?:-----END (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----|\Z)", re.DOTALL)
 
 
@@ -33,7 +33,7 @@ def redact(text: str) -> str:
 
 def child_environment() -> dict[str, str]:
     """Fresh environment; never mutate os.environ with installation tokens."""
-    blocked = ("FOXFORGE_GITHUB_", "_FOXFORGE_", "GITHUB_", "GH_", "GIT_", "GCM_")
+    blocked = ("FOXFORGE_GITHUB_", "FOXFORGE_PLANNER_", "_FOXFORGE_", "GITHUB_", "GH_", "GIT_", "GCM_")
     env = {
         key: value for key, value in os.environ.items()
         if not key.upper().startswith(blocked)

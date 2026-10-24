@@ -1,5 +1,29 @@
 # Security
 
+## 0.3.1 container and model boundary
+
+The non-root read-only control-plane image mounts repository clones and
+configuration read-only. Only the explicit control-plane data directory and a
+bounded tmpfs are writable. It receives no provider keys, host Docker socket,
+Proxmox token or deployment credential. Its entrypoint rejects legacy execution
+commands. A host operator with Docker access remains privileged; container policy
+does not restrict that human operator.
+
+The gateway uses only its own volume, encryption key and provider accounts; its
+dashboard is loopback-bound. FoxForge authenticates with a unified bearer key.
+The private HTTP Docker-host exception is explicit; remote endpoints require TLS,
+redirects and ambient proxies are disabled, and response bodies are bounded.
+Task-specific policy permits only listed model IDs and checks returned route
+identities. Gateway routing is trusted **before** that response check; configure
+only approved free providers and enforce egress externally for a stronger boundary.
+Never treat post-response detection as prevention of upstream data disclosure.
+
+`doctor` never signs in to a model or creates a database. Optional `--gateway`
+authenticates a model-list request. Data paths are explicit, uninitialized state
+requires `storage init`, unknown schemas fail before modification, and backup
+destinations must be new. The backup's writer-stop flag is a human assertion.
+See [migration and limitations](CONTAINER_DEPLOYMENT.md).
+
 ## Adaptive planning authorization
 
 The planning foundation separates issue authors from trusted approvers. Reading

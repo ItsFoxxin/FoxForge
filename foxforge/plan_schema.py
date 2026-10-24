@@ -27,7 +27,7 @@ def _strings(value, name: str, *, maximum: int = 64, item_limit: int = 2000) -> 
 
 
 def validate_plan(value) -> dict:
-    if not isinstance(value, dict) or set(value) != PLAN_FIELDS or value.get("schema_version") != 1:
+    if not isinstance(value, dict) or set(value) != PLAN_FIELDS or type(value.get("schema_version")) is not int or value.get("schema_version") != 1:
         raise PlanValidationError("Plan must match schema version 1")
     if not isinstance(value["summary"], str) or not value["summary"].strip() or len(value["summary"]) > 4000:
         raise PlanValidationError("Invalid plan summary")
@@ -50,6 +50,8 @@ def validate_plan(value) -> dict:
         for field in ("title", "description"):
             if not isinstance(task[field], str) or not task[field].strip() or len(task[field]) > 4000:
                 raise PlanValidationError(f"Invalid subtask {field}")
+        if not isinstance(task["capability"], str):
+            raise PlanValidationError("Invalid capability ID")
         try:
             get_capability(task["capability"])
         except ValueError as exc:

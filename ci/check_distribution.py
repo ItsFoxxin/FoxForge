@@ -43,7 +43,7 @@ def main() -> None:
         env.pop("PYTHONPATH", None)
         env.pop("DISCORD_WEBHOOK_URL", None)
         for key in list(env):
-            if key.upper().startswith(("FOXFORGE_GITHUB_", "GITHUB_", "GH_", "_FOXFORGE_", "GIT_")):
+            if key.upper().startswith(("FOXFORGE_", "GITHUB_", "GH_", "_FOXFORGE_", "GIT_")):
                 env.pop(key)
         def check(*args):
             subprocess.run([str(arg) for arg in args], cwd=directory, env=env, check=True, timeout=120)
@@ -56,10 +56,15 @@ def main() -> None:
         for command in ("issue", "watch"):
             check(python, "-m", "foxforge", command, "--help")
             check(console, command, "--help")
-        for command in ("projects", "issues", "tasks", "capabilities"):
+        for command in ("projects", "issues", "tasks", "capabilities", "storage", "doctor"):
             check(python, "-m", "foxforge", command, "--help")
             check(console, command, "--help")
         check(console, "capabilities", "list")
+        env["FOXFORGE_DATA_DIR"] = str(directory / "state")
+        Path(env["FOXFORGE_DATA_DIR"]).mkdir()
+        check(console, "storage", "init")
+        check(console, "storage", "verify", "--directory", env["FOXFORGE_DATA_DIR"])
+        check(console, "projects", "list")
         failure = subprocess.run(
             [str(python), "-m", "foxforge", "--repo", str(directory), "--task", "validation", "--test-command", "pytest", "--skip-discord"],
             cwd=directory, env=env, capture_output=True, text=True, timeout=120,
