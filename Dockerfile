@@ -19,7 +19,7 @@ COPY deployment/requirements-runtime.txt /tmp/requirements-runtime.txt
 RUN python -m pip install --no-cache-dir -r /tmp/requirements-runtime.txt
 COPY --from=builder /wheels /tmp/wheels
 RUN python -m pip install --no-cache-dir --no-deps /tmp/wheels/*.whl && rm -rf /tmp/wheels
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 FOXFORGE_CONTROL_PLANE_ONLY=1 \
     FOXFORGE_DATA_DIR=/var/lib/foxforge/control-plane \
     FOXFORGE_REPOS_DIR=/var/lib/foxforge/repos FOXFORGE_CONFIG_DIR=/etc/foxforge
 WORKDIR /app

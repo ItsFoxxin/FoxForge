@@ -169,3 +169,14 @@ repositories and model processes from unrelated credential files. Runtime run
 JSON is not signed against hostile local modification, and one worktree must
 not be shared by concurrent tasks. See GITHUB_APP.md for manual verification and
 partial-failure/ownership limitations. Normal tests mock all GitHub HTTP/pushes.
+
+## Legacy Qwen review and worker boundary
+
+The [0.3.1 source audit](QWEN_LEGACY_AUDIT.md) covers retained Qwen roles,
+security limits, model-versus-runtime separation and the proposed 0.4.x worker
+protocol/migration. Legacy execution is not sandboxed by role names or cwd.
+The control-plane image sets `FOXFORGE_CONTROL_PLANE_ONLY=1` and rejects legacy
+launch/publish entrypoints even through direct imports. An absent variable keeps
+the opt-in venv workflow; any present value fails closed. Only trusted operators
+may change deployment configuration. This is not isolation from arbitrary Python
+code run by an administrator. No worker service is added in this release.

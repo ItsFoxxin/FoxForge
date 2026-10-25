@@ -52,3 +52,14 @@ def ensure_key_outside_repo(repo: Path) -> None:
         lexical = Path(os.path.abspath(path))
         if lexical.is_relative_to(repo.resolve()) or path.resolve().is_relative_to(repo.resolve()):
             raise ValueError("The GitHub App private key must be outside the target repository")
+
+
+def require_execution_worker() -> None:
+    """Reject legacy execution in the supported control-plane image.
+
+    This deployment-mode guard supplements the restricted entrypoint and mounts;
+    it is not a sandbox against an administrator who changes the image/environment.
+    An absent variable preserves the existing opt-in venv execution workflow.
+    """
+    if "FOXFORGE_CONTROL_PLANE_ONLY" in os.environ:
+        raise RuntimeError("Legacy execution requires a separate authorized worker; control-plane mode forbids it")

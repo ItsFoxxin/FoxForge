@@ -296,3 +296,11 @@ The image's entrypoint refuses legacy `issue`, `watch`, shell and publishing
 commands. Existing venv execution workflows remain legacy opt-in paths. This
 release adds no coding workers, deployment tools, infrastructure credentials,
 Docker socket mounts, public dashboard, or production automation.
+
+`FOXFORGE_CONTROL_PLANE_ONLY=1` is baked into the image. Leave it set: legacy
+agent/test/coordinator/issue execution and publishing APIs reject calls before
+side effects, including calls made by bypassing the normal CLI. Any present
+value enables the guard. This does not sandbox administrator-supplied Python.
+Do not add Qwen, shell tools or worker credentials to this control plane. Review
+the [legacy audit and future worker requirements](QWEN_LEGACY_AUDIT.md) before
+considering execution migration; none is performed by this deployment.

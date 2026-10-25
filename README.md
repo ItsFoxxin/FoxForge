@@ -21,6 +21,9 @@ performs commit-pinned read-only discovery, validates a bounded capability-based
 plan, and stops at human review. See
 [the foundation deployment guide](docs/FOUNDATION_DEPLOYMENT.md).
 
+See the [Qwen legacy audit and 0.4.x migration recommendation](docs/QWEN_LEGACY_AUDIT.md)
+for execution risks, retained components and the provider/runtime boundary.
+
 This planning path is separate from the legacy implementation worker below.
 It does not modify source, execute repository commands, publish branches, create
 pull requests, deploy applications, or access infrastructure.

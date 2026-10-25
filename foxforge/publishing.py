@@ -15,7 +15,7 @@ from typing import Callable
 
 from .github_app import BotIdentity, GitHubApp, GitHubAppError, repository_name
 from .git_manager import GitError, current_branch, head_sha, run_git, resolve_ref
-from .security import child_environment, ensure_key_outside_repo, redact
+from .security import child_environment, ensure_key_outside_repo, redact, require_execution_worker
 from .state import RunState
 from .state_validator import validate_state_for_publish
 
@@ -144,6 +144,7 @@ def _assert_safe_git_config(repo: Path) -> None:
 
 
 def commit_validated_changes(repo: Path, state: RunState, bot: BotIdentity, run_dir: Path) -> str:
+    require_execution_worker()
     validate_task_branch(repo, state.branch)
     if head_sha(repo) != state.validated_head_sha or worktree_fingerprint(repo, state.validated_head_sha) != state.validated_tree_hash:
         raise PublishingError("Repository content or HEAD changed after authoritative validation")
@@ -192,6 +193,7 @@ def commit_validated_changes(repo: Path, state: RunState, bot: BotIdentity, run_
 
 
 def push_task_branch(repo: Path, state: RunState, run_dir: Path, token: str, expected_remote: str | None) -> None:
+    require_execution_worker()
     validate_task_branch(repo, state.branch)
     if head_sha(repo) != state.commit_sha or worktree_fingerprint(repo, state.validated_head_sha) != state.validated_tree_hash:
         raise PublishingError("Repository changed before the task branch push")
@@ -210,6 +212,7 @@ def push_task_branch(repo: Path, state: RunState, run_dir: Path, token: str, exp
 
 def fetch_dev_branch(repo: Path, repository: str, run_dir: Path, token: str) -> None:
     """Unattended intake fetches dev using the same ephemeral App credentials."""
+    require_execution_worker()
     if origin_repository(repo).casefold() != repository.casefold():
         raise PublishingError("Origin changed before the issue base fetch")
     _assert_safe_git_config(repo)
@@ -259,6 +262,7 @@ def find_existing_pr(app: GitHubApp, state: RunState, bot: BotIdentity, sha: str
 
 
 def ensure_pull_request(app: GitHubApp, state: RunState, bot: BotIdentity) -> dict:
+    require_execution_worker()
     existing = find_existing_pr(app, state, bot, state.commit_sha)
     if existing:
         return existing
@@ -285,6 +289,7 @@ def ensure_pull_request(app: GitHubApp, state: RunState, bot: BotIdentity) -> di
 
 def publish_run(repo: Path, state: RunState, state_path: Path, app: GitHubApp, *, guard: Callable[[], None] | None = None) -> None:
     """Persist each completed side effect so partial failures remain inspectable."""
+    require_execution_worker()
     validate_state_for_publish(state)
     stage = "preflight"
     try:

@@ -72,3 +72,19 @@ post-cutover tasks in a separate verified archive with an explicit cutoff.
 
 No automatic merge, live deployment, coding worker, shell tool, infrastructure
 operation, production access, public dashboard or unattended remediation is added.
+
+## Qwen legacy review
+
+[The source-backed Qwen audit](QWEN_LEGACY_AUDIT.md) inventories the six roles,
+invocation/handoffs, local state, tests/publishing, security limits and performance.
+It separates model inference from worker runtime and proposes a versioned
+language-independent worker protocol and staged 0.4.x migration. The fixed pipeline
+and all six assets remain available outside the control-plane image. The image
+sets `FOXFORGE_CONTROL_PLANE_ONLY=1`; direct legacy execution/publishing calls
+are rejected before side effects as well as at CLI dispatch. This mode guard
+supplements mounts/credentials and is not an arbitrary-code sandbox.
+
+Remaining legacy risks include same-account shell/file access, mutable runtime
+configuration, non-expiring ready approvals, unsigned local JSON and no aggregate
+inference budget. Do not connect approved plans to that execution path. No
+provider-independent execution runtime is implemented in 0.3.1.

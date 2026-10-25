@@ -36,6 +36,10 @@ def main():
         command(*args, "foxforge:0.3.1", "watch", expected=2)
         probe = "import os; from pathlib import Path; assert os.geteuid()==10001; assert not os.access('/var/lib/foxforge/repos',os.W_OK); assert not os.access('/etc/foxforge',os.W_OK); assert not Path('/var/run/docker.sock').exists()"
         command(*args, "--entrypoint=python", "foxforge:0.3.1", "-c", probe)
+        # Bypassing the CLI still cannot invoke legacy execution entrypoints.
+        guard = "from foxforge.test_runner import run_tests; run_tests(None, 'must-not-execute')"
+        command(*args, "--entrypoint=python", "foxforge:0.3.1", "-c", guard, expected=1)
+
         command(*args, "foxforge:0.3.1", "storage", "verify", "--directory", "/var/lib/foxforge/control-plane")
         seed = """from pathlib import Path
 from foxforge.control_plane import ControlPlane

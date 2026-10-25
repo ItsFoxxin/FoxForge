@@ -19,6 +19,10 @@
   constrain repositories to the configured storage root, and use direct bounded
   Git-object discovery without executing project code.
 - Preserve 0.3.0 planning/authorization/artifacts and legacy venv commands.
+- Audit all six Qwen roles and legacy execution/state/Git/approval boundaries;
+  document a provider-independent worker protocol and 0.4.x migration gates.
+  Reject direct legacy execution/publishing calls in control-plane image mode
+  and distinguish relayed model proposals from authorization.
 - Add minimal task/tool/approval-scope data contracts, release CI, tests, Debian
   migration/rollback instructions and explicit gateway trust limitations.
 

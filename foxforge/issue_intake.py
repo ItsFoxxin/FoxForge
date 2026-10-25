@@ -24,7 +24,7 @@ from .issue_tasks import BLOCKED, COMPLETE, ISSUE_LABELS, RUNNING, IssueError, I
 from .process import duration_seconds
 from .publishing import PublishingError, origin_repository, fetch_dev_branch
 from .run_storage import create_run_dir
-from .security import ensure_key_outside_repo
+from .security import ensure_key_outside_repo, require_execution_worker
 from .state import RunState
 from .state_validator import validate_issue_fields, validate_state_for_report
 
@@ -208,6 +208,7 @@ def _sync(api: IssueAPI, snapshot: IssueTask, state: RunState, path: Path) -> No
 
 
 def execute_issue(args: argparse.Namespace, *, api: IssueAPI | None = None, worktree_locked: bool = False) -> int:
+    require_execution_worker()
     policy = ActorPolicy.from_env()
     repo = Path(args.repo).resolve()
     with ExitStack() as stack:
@@ -301,6 +302,7 @@ def execute_issue(args: argparse.Namespace, *, api: IssueAPI | None = None, work
 
 
 def watch(args: argparse.Namespace) -> int:
+    require_execution_worker()
     policy = ActorPolicy.from_env()
     repo = Path(args.repo).resolve()
     with local_lock(repo, "worktree-" + worktree_key(repo)):
