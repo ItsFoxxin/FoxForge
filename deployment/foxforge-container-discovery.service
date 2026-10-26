@@ -1,0 +1,13 @@
+[Unit]
+Description=FoxForge model-free container issue discovery
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/foxforge-container/source
+ExecStart=/usr/bin/docker compose --profile cli run --rm --no-deps foxforge issues discover --project ItsFoxxin/FoxForge
+UMask=0077
+# Host operator-owned unit drives Docker; the application runs as UID 10001.
+# Do not give the application user membership in the host docker group.

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import pytest
 
 from foxforge import control_plane, foundation_cli
 from foxforge.control_plane import ControlPlane
@@ -36,6 +37,7 @@ def setup_store(git_repo, tmp_path, monkeypatch):
     run_git(git_repo, "update-ref", "refs/remotes/origin/dev", head_sha(git_repo))
     root = tmp_path / "data"
     monkeypatch.setattr(control_plane, "data_root", lambda: root)
+    monkeypatch.setenv("FOXFORGE_REPOS_DIR", str(tmp_path))
     store = ControlPlane(root / "foxforge.db")
     store.register_project(repository_id=17, repository="owner/project", local_path=git_repo, default_branch="dev")
     return store, root
@@ -44,7 +46,7 @@ def setup_store(git_repo, tmp_path, monkeypatch):
 def test_discovery_never_calls_planner(git_repo, tmp_path, monkeypatch, capsys):
     store, _ = setup_store(git_repo, tmp_path, monkeypatch)
     monkeypatch.setattr(foundation_cli, "ControlPlane", lambda: store)
-    monkeypatch.setattr(foundation_cli, "client", lambda repository: FakeAPI(issue(labels=())))
+    monkeypatch.setattr(foundation_cli, "client", lambda repository, repository_id: FakeAPI(issue(labels=())))
     monkeypatch.setattr(foundation_cli, "request_plan", lambda **kwargs: (_ for _ in ()).throw(AssertionError("model called")))
     assert foundation_cli.main(["issues", "discover", "--project", "owner/project"]) == 0
     assert json.loads(capsys.readouterr().out)["model_requests"] == 0
@@ -56,7 +58,7 @@ def test_authorized_offline_plan_reaches_human_review(git_repo, tmp_path, monkey
     plan_file.write_text(json.dumps(PLAN), encoding="utf-8")
     monkeypatch.setenv("FOXFORGE_ALLOWED_GITHUB_USER_IDS", "5")
     monkeypatch.setattr(foundation_cli, "ControlPlane", lambda: store)
-    monkeypatch.setattr(foundation_cli, "client", lambda repository: FakeAPI(issue()))
+    monkeypatch.setattr(foundation_cli, "client", lambda repository, repository_id: FakeAPI(issue()))
     assert foundation_cli.main(["tasks", "plan", "--project", "owner/project", "--issue", "47", "--plan-file", str(plan_file)]) == 0
     result = json.loads(capsys.readouterr().out)
     task = store.task(result["task_id"])
@@ -73,7 +75,7 @@ def test_unapproved_issue_causes_no_planner_call(git_repo, tmp_path, monkeypatch
     api = FakeAPI(issue())
     api.approval_for_label = lambda *args: None
     monkeypatch.setattr(foundation_cli, "ControlPlane", lambda: store)
-    monkeypatch.setattr(foundation_cli, "client", lambda repository: api)
+    monkeypatch.setattr(foundation_cli, "client", lambda repository, repository_id: api)
     monkeypatch.setattr(foundation_cli, "request_plan", lambda **kwargs: (_ for _ in ()).throw(AssertionError("model called")))
     assert foundation_cli.main(["tasks", "plan", "--project", "owner/project", "--issue", "47"]) == 1
 
@@ -82,7 +84,7 @@ def test_removed_planning_label_causes_no_authorization_or_model_call(git_repo, 
     store, _ = setup_store(git_repo, tmp_path, monkeypatch)
     api = FakeAPI(issue(labels=()))
     monkeypatch.setattr(foundation_cli, "ControlPlane", lambda: store)
-    monkeypatch.setattr(foundation_cli, "client", lambda repository: api)
+    monkeypatch.setattr(foundation_cli, "client", lambda repository, repository_id: api)
     monkeypatch.setattr(foundation_cli, "request_plan", lambda **kwargs: (_ for _ in ()).throw(AssertionError("model called")))
     assert foundation_cli.main(["tasks", "plan", "--project", "owner/project", "--issue", "47"]) == 1
     with store.connect() as db:
@@ -106,7 +108,7 @@ def test_issue_change_during_authorization_requires_fresh_approval(git_repo, tmp
 
     monkeypatch.setenv("FOXFORGE_ALLOWED_GITHUB_USER_IDS", "5")
     monkeypatch.setattr(foundation_cli, "ControlPlane", lambda: store)
-    monkeypatch.setattr(foundation_cli, "client", lambda repository: ChangingAPI())
+    monkeypatch.setattr(foundation_cli, "client", lambda repository, repository_id: ChangingAPI())
     monkeypatch.setattr(foundation_cli, "request_plan", lambda **kwargs: (_ for _ in ()).throw(AssertionError("model called")))
     assert foundation_cli.main(["tasks", "plan", "--project", "owner/project", "--issue", "47"]) == 1
     with store.connect() as db:
@@ -117,3 +119,32 @@ def test_capability_listing_has_no_control_plane_side_effect(monkeypatch, capsys
     monkeypatch.setattr(foundation_cli, "ControlPlane", lambda: (_ for _ in ()).throw(AssertionError("database opened")))
     assert foundation_cli.main(["capabilities", "list"]) == 0
     assert json.loads(capsys.readouterr().out)
+
+
+def test_provider_failure_is_blocked_and_duplicate_cannot_repeat_inference(git_repo, tmp_path, monkeypatch, capsys):
+    from foxforge.planning_provider import PlanningProviderError
+    store, _ = setup_store(git_repo, tmp_path, monkeypatch)
+    monkeypatch.setenv("FOXFORGE_ALLOWED_GITHUB_USER_IDS", "5")
+    monkeypatch.setattr(foundation_cli, "ControlPlane", lambda: store)
+    monkeypatch.setattr(foundation_cli, "client", lambda *args: FakeAPI(issue()))
+    calls = []
+    def failure(**kwargs):
+        calls.append(kwargs["task_id"])
+        raise PlanningProviderError("rate_limited")
+    monkeypatch.setattr(foundation_cli, "request_plan", failure)
+    args = ["tasks", "plan", "--project", "owner/project", "--issue", "47"]
+    assert foundation_cli.main(args) == 1
+    task = store.task(calls[0])
+    assert task["state"] == "blocked" and task["error_code"] == "RATE_LIMITED"
+    assert foundation_cli.main(args) == 1 and len(calls) == 1
+
+
+def test_recreated_repository_cannot_inherit_registered_authorization(monkeypatch):
+    monkeypatch.setattr(foundation_cli.AppConfig, "from_env", lambda: object())
+    class ReplacedApp:
+        def __init__(self, *args, **kwargs): pass
+        def check_repository(self): return {"id": 99}
+    monkeypatch.setattr(foundation_cli, "GitHubApp", ReplacedApp)
+    from foxforge.control_plane import ControlPlaneError
+    with pytest.raises(ControlPlaneError, match="repository ID"):
+        foundation_cli.client("owner/project", 17)

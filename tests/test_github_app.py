@@ -21,6 +21,7 @@ def signing_key():
 def app_config(tmp_path, monkeypatch, signing_key):
     path = tmp_path / "app.pem"
     path.write_bytes(signing_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    path.chmod(0o600)
     monkeypatch.setenv("FOXFORGE_GITHUB_APP_ID", "123")
     monkeypatch.setenv("FOXFORGE_GITHUB_INSTALLATION_ID", "456")
     monkeypatch.setenv("FOXFORGE_GITHUB_PRIVATE_KEY", str(path))

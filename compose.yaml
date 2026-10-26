@@ -1,0 +1,69 @@
+name: foxforge
+services:
+  foxforge:
+    image: foxforge:0.3.1
+    build: .
+    profiles: ["cli"]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 0.75
+    restart: "no"
+    env_file: ${FOXFORGE_ENV_FILE:-/etc/foxforge-container/container.env}
+    volumes:
+      - type: bind
+        source: ${FOXFORGE_STATE_PATH:-/var/lib/foxforge-container/control-plane}
+        target: /var/lib/foxforge/control-plane
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${FOXFORGE_REPOS_PATH:-/var/lib/foxforge-container/repos}
+        target: /var/lib/foxforge/repos
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${FOXFORGE_CONFIG_PATH:-/etc/foxforge-container}
+        target: /etc/foxforge
+        read_only: true
+        bind: {create_host_path: false}
+    tmpfs: ["/tmp:size=32m,mode=1777,noexec,nosuid,nodev"]
+    networks: [control, github_egress]
+  freellmapi:
+    # Reviewed upstream commit 5646971602a89436ce4921b0f04b99ac7bcc3728.
+    image: ghcr.io/tashfeenahmed/freellmapi@sha256:fe07ec5c57b4799922afde5d001eb1a3bb0d075e20400038b6c72718c9224efa
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    restart: unless-stopped
+    env_file: ${FREELLMAPI_ENV_FILE:-/etc/freellmapi/gateway.env}
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      REQUEST_MAX_TOKENS_BUDGET: "310000"
+      MAX_CONSECUTIVE_UPSTREAM_FAILS: "1"
+      FALLBACK_DETAIL_HEADER: "0"
+    ports: ["127.0.0.1:3001:3001"]
+    volumes:
+      - type: bind
+        source: ${FREELLMAPI_STATE_PATH:-/var/lib/freellmapi}
+        target: /app/server/data
+        bind: {create_host_path: false}
+    tmpfs: ["/tmp:size=64m,mode=1777,noexec,nosuid,nodev"]
+    networks: [control, provider_egress]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/ping').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+networks:
+  control:
+    internal: true
+  github_egress: {}
+  provider_egress: {}

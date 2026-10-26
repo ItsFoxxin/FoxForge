@@ -6,12 +6,12 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
 from .security import redact
+from .configuration import directory
 
 
 SCHEMA_VERSION = 1
@@ -26,25 +26,32 @@ def utc_now() -> str:
 
 
 def data_root() -> Path:
-    configured = os.getenv("FOXFORGE_DATA_DIR")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    local = os.getenv("LOCALAPPDATA")
-    return ((Path(local) / "FoxForge" / "control-plane") if local else (Path.home() / ".foxforge" / "control-plane")).resolve()
+    return directory("FOXFORGE_DATA_DIR")
 
 
 class ControlPlane:
     def __init__(self, path: Path | None = None):
-        self.path = (path or data_root() / "foxforge.db").resolve()
+        requested = path or data_root() / "foxforge.db"
+        if requested.is_symlink():
+            raise ControlPlaneError("Database symlinks are not allowed")
+        self.path = requested.resolve()
+        if path is None and not self.path.is_file():
+            raise ControlPlaneError("No database at FOXFORGE_DATA_DIR; inspect existing state with doctor before explicit storage init")
+        if path is None and self.path.stat().st_size == 0:
+            raise ControlPlaneError("Empty database found; preserve it and inspect storage before initializing")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
-    def connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def connect(self):
         connection = sqlite3.connect(self.path, timeout=15, isolation_level=None)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 15000")
-        return connection
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA busy_timeout = 15000")
+            yield connection
+        finally:
+            connection.close()
 
     @contextmanager
     def transaction(self):
@@ -59,6 +66,12 @@ class ControlPlane:
 
     def _initialize(self) -> None:
         with self.connect() as db:
+            # Never modify an existing unknown database before checking its version.
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='schema_info'").fetchone():
+                if [row[0] for row in db.execute("SELECT version FROM schema_info")] != [SCHEMA_VERSION]:
+                    raise ControlPlaneError("Unsupported control-plane schema version")
+            elif db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
+                raise ControlPlaneError("Existing database is not a FoxForge control plane")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS schema_info(version INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS projects(
@@ -112,6 +125,15 @@ class ControlPlane:
                     detail_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS model_requests(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL REFERENCES tasks(id),
+                    reserved_tokens INTEGER NOT NULL,
+                    policy_json TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    telemetry_json TEXT,
+                    created_at TEXT NOT NULL
+                );
             """)
             versions = [row[0] for row in db.execute("SELECT version FROM schema_info")]
             if not versions:
@@ -140,6 +162,7 @@ class ControlPlane:
                     raise ControlPlaneError("Registered project identity conflicts with existing data")
                 return dict(existing)
             db.execute("INSERT INTO projects VALUES (?,?,?,?,?)", (repository_id, repository, local, default_branch, now))
+            self._audit(db, None, "project.registered", "allowed", {"repository_id": repository_id, "repository": repository})
         return self.project(repository)
 
     def project(self, repository: str) -> dict:
@@ -193,8 +216,15 @@ class ControlPlane:
         if state not in allowed_states or activity not in allowed_activities:
             raise ControlPlaneError("Invalid task state")
         with self.transaction() as db:
-            if not db.execute("SELECT 1 FROM tasks WHERE id=?", (task_id,)).fetchone():
+            prior = db.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if not prior:
                 raise ControlPlaneError("Task does not exist")
+            transitions = {"queued": {"active", "blocked", "cancelled"},
+                           "active": {"active", "blocked", "failed", "cancelled", "awaiting_human_review"},
+                           "blocked": {"blocked", "cancelled"}, "failed": {"failed"},
+                           "cancelled": {"cancelled"}, "awaiting_human_review": {"awaiting_human_review"}}
+            if state not in transitions[prior["state"]]:
+                raise ControlPlaneError("Task transition requires a new authorization; automatic resume is disabled")
             db.execute("UPDATE tasks SET state=?,activity=?,base_sha=COALESCE(?,base_sha),discovery_json=COALESCE(?,discovery_json),plan_json=COALESCE(?,plan_json),artifact_dir=COALESCE(?,artifact_dir),error_code=?,updated_at=? WHERE id=?",
                        (state, activity, base_sha, self._safe_json(discovery) if discovery is not None else None,
                         self._safe_json(plan) if plan is not None else None, str(artifact_dir.resolve()) if artifact_dir else None,
@@ -202,12 +232,46 @@ class ControlPlane:
             self._audit(db, task_id, "task.state", "recorded", {"state": state, "activity": activity, "error_code": error_code})
         return self.task(task_id)
 
+    def reserve_model_request(self, task_id: str, policy, input_bytes: int) -> int:
+        from dataclasses import asdict
+        # UTF-8 byte count is a deliberately conservative accounting reservation,
+        # not an exact tokenizer count. Gateway/provider limits remain necessary.
+        reserve = input_bytes + policy.max_output_tokens
+        encoded = self._safe_json(asdict(policy))
+        with self.transaction() as db:
+            task = db.execute("SELECT state,activity FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if not task or tuple(task) != ("active", "planning"):
+                raise ControlPlaneError("Model requests require an active authorized planning task")
+            prior = db.execute("SELECT COUNT(*),COALESCE(SUM(reserved_tokens),0) FROM model_requests WHERE task_id=?", (task_id,)).fetchone()
+            bound = db.execute("SELECT policy_json FROM model_requests WHERE task_id=? LIMIT 1", (task_id,)).fetchone()
+            if bound and bound[0] != encoded:
+                raise ControlPlaneError("Task policy cannot change after a request reservation")
+            if input_bytes > policy.max_input_bytes or prior[0] >= policy.max_requests or prior[1] + reserve > policy.max_reserved_tokens:
+                raise ControlPlaneError("Task model request or token reservation budget exhausted")
+            row = db.execute("INSERT INTO model_requests(task_id,reserved_tokens,policy_json,outcome,created_at) VALUES (?,?,?,?,?)",
+                             (task_id, reserve, encoded, "reserved", utc_now()))
+            self._audit(db, task_id, "model.reserved", "allowed", {"request_id": row.lastrowid, "reserved_tokens": reserve})
+            return row.lastrowid
+
+    def finish_model_request(self, request_id: int, outcome: str, telemetry: dict) -> None:
+        if outcome not in {"succeeded", "rate_limited", "unavailable", "timeout", "invalid_response", "unauthorized_route", "authentication_failed"}:
+            raise ControlPlaneError("Invalid model outcome")
+        with self.transaction() as db:
+            row = db.execute("SELECT task_id,outcome FROM model_requests WHERE id=?", (request_id,)).fetchone()
+            if not row or row["outcome"] != "reserved":
+                raise ControlPlaneError("Request is missing or already finalized")
+            db.execute("UPDATE model_requests SET outcome=?,telemetry_json=? WHERE id=?", (outcome, self._safe_json(telemetry), request_id))
+            self._audit(db, row["task_id"], "model.finished", outcome, {"request_id": request_id, **telemetry})
+
     def task(self, task_id: str) -> dict:
         with self.connect() as db:
             row = db.execute("SELECT t.*, p.repository,p.local_path,p.default_branch FROM tasks t JOIN projects p ON p.repository_id=t.repository_id WHERE t.id=?", (task_id,)).fetchone()
+            requests = [dict(item) for item in db.execute("SELECT id,reserved_tokens,outcome,telemetry_json,created_at FROM model_requests WHERE task_id=? ORDER BY id", (task_id,))]
         if not row:
             raise ControlPlaneError("Task does not exist")
         result = dict(row)
+        result["model_requests"] = [{**{key: value for key, value in item.items() if key != "telemetry_json"},
+                                      "telemetry": json.loads(item["telemetry_json"]) if item["telemetry_json"] else None} for item in requests]
         for key in ("discovery_json", "plan_json"):
             result[key[:-5]] = json.loads(result[key]) if result[key] else None
         return result

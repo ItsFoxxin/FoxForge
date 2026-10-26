@@ -1,5 +1,18 @@
 # FoxForge
 
+Version 0.3.1 adds a one-shot Docker control plane, a separately pinned FreeLLMAPI
+gateway, `foxforge doctor`, explicit storage initialization/verification/backups,
+task model policies, and durable request budgets. Start with the
+[Debian 13 container migration and rollback guide](docs/CONTAINER_DEPLOYMENT.md)
+and [release notes](CHANGELOG.md). The existing 0.3.0 deployment should stay active
+until its backup and container candidate are verified and migration is approved.
+The container entrypoint permits planning and deterministic operations only.
+
+`FOXFORGE_DATA_DIR` must now name an existing absolute directory. There is no
+implicit home-directory database fallback. Existing databases stay schema version
+1, with an additive model-request ledger. Live planning also requires the protected
+model policy and gateway credential documented in `deployment/`.
+
 The adaptive planning foundation is available through `foxforge projects`,
 `foxforge issues discover`, `foxforge tasks plan`, and `foxforge tasks show`.
 It verifies repository authorization, records issue discovery without model use,
@@ -7,6 +20,9 @@ requires a trusted `foxforge:plan` label event for the exact issue revision,
 performs commit-pinned read-only discovery, validates a bounded capability-based
 plan, and stops at human review. See
 [the foundation deployment guide](docs/FOUNDATION_DEPLOYMENT.md).
+
+See the [Qwen legacy audit and 0.4.x migration recommendation](docs/QWEN_LEGACY_AUDIT.md)
+for execution risks, retained components and the provider/runtime boundary.
 
 This planning path is separate from the legacy implementation worker below.
 It does not modify source, execute repository commands, publish branches, create

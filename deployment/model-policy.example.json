@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "tasks": {
+    "development.plan": {
+      "models": ["REPLACE_WITH_APPROVED_MODEL_ID"],
+      "providers": ["REPLACE_WITH_APPROVED_PLATFORM_ID"],
+      "max_requests": 1,
+      "max_retries": 0,
+      "max_output_tokens": 8000,
+      "max_input_bytes": 300000,
+      "max_reserved_tokens": 310000,
+      "timeout_seconds": 120
+    }
+  }
+}

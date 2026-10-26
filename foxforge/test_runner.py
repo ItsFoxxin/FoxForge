@@ -10,7 +10,7 @@ import subprocess
 import ctypes
 
 from .process import run_process
-from .security import child_environment, redact
+from .security import child_environment, redact, require_execution_worker
 
 
 @dataclass
@@ -85,6 +85,7 @@ def parse_test_counts(output: str) -> tuple[int, int, bool]:
 
 
 def run_tests(repo: Path, command: str, timeout: float = 1200) -> TestResult:
+    require_execution_worker()
     argv = split_command(command)
     env = child_environment()
     try:

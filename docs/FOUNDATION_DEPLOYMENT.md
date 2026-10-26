@@ -1,5 +1,11 @@
 # Deploy the FoxForge planning foundation
 
+This page records the **0.3.0 venv deployment**. For 0.3.1, use
+[CONTAINER_DEPLOYMENT.md](CONTAINER_DEPLOYMENT.md). Version 0.3.1 requires an
+explicit existing `FOXFORGE_DATA_DIR` and intentional `storage init` for new
+installations, `FOXFORGE_REPOS_DIR`, and a task model policy for live inference.
+Keep a working 0.3.0 installation intact until the new candidate is approved.
+
 This guide deploys the first adaptive FoxForge milestone: authorized project registration, model-free issue discovery, trusted `foxforge:plan` authorization, commit-pinned repository discovery, strict plan generation, and human-review artifacts.
 
 It does not enable code modification, shell execution in target repositories, branch pushes, pull requests, previews, production deployments, Proxmox operations, or infrastructure maintenance.

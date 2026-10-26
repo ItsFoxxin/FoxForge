@@ -6,10 +6,12 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import sqlite3
 
 from .actor_authorization import ActorPolicy
 from .capabilities import public_catalog
-from .control_plane import ControlPlane, ControlPlaneError
+from .control_plane import ControlPlane, ControlPlaneError, data_root
+from .configuration import directory as configured_directory
 from .github_app import AppConfig, GitHubApp, GitHubAppError, repository_name
 from .git_manager import GitError, ensure_repo, resolve_ref
 from .issue_api import IssueAPI
@@ -19,6 +21,7 @@ from .planning_provider import PlanningProviderError, request_plan
 from .publishing import origin_repository
 from .repository_discovery import DiscoveryError, discover_repository, planner_context
 from .review_artifacts import write_artifacts
+from .security import ensure_key_outside_repo
 
 
 PLAN_LABEL = "foxforge:plan"
@@ -30,9 +33,10 @@ def snapshot(task: IssueTask) -> dict:
             "updated_at": task.updated_at, "author_id": task.author_id, "revision": task.revision}
 
 
-def client(repository: str) -> IssueAPI:
+def client(repository: str, repository_id: int) -> IssueAPI:
     app = GitHubApp(AppConfig.from_env(), repository, issues=True)
-    app.check_repository()
+    if app.check_repository()["id"] != repository_id:
+        raise ControlPlaneError("GitHub repository ID no longer matches the registered project")
     return IssueAPI(app)
 
 
@@ -60,12 +64,22 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("task_id")
     capabilities = groups.add_parser("capabilities")
     capabilities.add_subparsers(dest="command", required=True).add_parser("list")
+    storage = groups.add_parser("storage").add_subparsers(dest="command", required=True)
+    storage.add_parser("init")
+    verify = storage.add_parser("verify")
+    verify.add_argument("--directory", required=True)
+    backup = storage.add_parser("backup")
+    backup.add_argument("--destination", required=True)
+    backup.add_argument("--writers-stopped", required=True, action="store_true")
     return parser
 
 
 def register_project(args, store: ControlPlane) -> int:
     repository = repository_name(args.repository)
     repo = Path(args.repo).resolve()
+    if not repo.is_relative_to(configured_directory("FOXFORGE_REPOS_DIR")):
+        raise ControlPlaneError("Repository must be within FOXFORGE_REPOS_DIR")
+    ensure_key_outside_repo(repo)
     ensure_repo(repo)
     if origin_repository(repo).casefold() != repository.casefold():
         raise ControlPlaneError("Local origin does not match the requested GitHub repository")
@@ -79,7 +93,7 @@ def register_project(args, store: ControlPlane) -> int:
 
 def discover_issues(args, store: ControlPlane) -> int:
     project = store.project(args.project)
-    tasks = client(project["repository"]).list_open()
+    tasks = client(project["repository"], project["repository_id"]).list_open()
     for task in tasks:
         store.record_discovery(project, snapshot(task))
     print(json.dumps({"repository": project["repository"], "issues_discovered": len(tasks),
@@ -91,7 +105,13 @@ def plan_task(args, store: ControlPlane) -> int:
     if args.issue <= 0:
         raise ControlPlaneError("Issue number must be positive")
     project = store.project(args.project)
-    api = client(project["repository"])
+    repo = Path(project["local_path"])
+    if not repo.resolve().is_relative_to(configured_directory("FOXFORGE_REPOS_DIR")):
+        raise ControlPlaneError("Registered repository is outside FOXFORGE_REPOS_DIR")
+    ensure_key_outside_repo(repo)
+    if origin_repository(repo).casefold() != project["repository"].casefold():
+        raise ControlPlaneError("Registered repository origin changed")
+    api = client(project["repository"], project["repository_id"])
     issue = api.get(args.issue)
     current = snapshot(issue)
     store.record_discovery(project, current)
@@ -118,15 +138,17 @@ def plan_task(args, store: ControlPlane) -> int:
             plan = parse_plan(Path(args.plan_file).read_text(encoding="utf-8"))
             telemetry = {"configured_model": "plan-file", "routed_via": None, "usage": {}, "source": "operator-supplied"}
         else:
-            plan, telemetry = request_plan(requirement=issue.task_text, discovery_context=planner_context(discovery))
+            plan, telemetry = request_plan(requirement=issue.task_text, discovery_context=planner_context(discovery),
+                                           store=store, task_id=task["id"])
         directory = store.artifacts(task["id"])
         write_artifacts(directory, task, plan, discovery, telemetry)
         task = store.update_task(task["id"], state="awaiting_human_review", activity="idle", plan=plan, artifact_dir=directory)
         print(json.dumps({"task_id": task["id"], "state": task["state"], "artifact_dir": str(directory),
                           "plan": str(directory / "plan.md")}, indent=2))
         return 0
-    except (OSError, DiscoveryError, IssueError, PlanValidationError, PlanningProviderError, ValueError):
-        store.update_task(task["id"], state="blocked", activity="idle", error_code="PLANNING_FAILED")
+    except (OSError, GitError, ControlPlaneError, DiscoveryError, IssueError, PlanValidationError, PlanningProviderError, ValueError) as exc:
+        code = exc.code.upper() if isinstance(exc, PlanningProviderError) else "PLANNING_FAILED"
+        store.update_task(task["id"], state="blocked", activity="idle", error_code=code)
         raise
 
 
@@ -140,6 +162,20 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if (args.group, args.command) == ("capabilities", "list"):
             print(json.dumps(public_catalog(), indent=2)); return 0
+        if args.group == "storage":
+            from .storage_ops import backup, verify_directory
+            if args.command == "init":
+                from .doctor import legacy_locations
+                root = data_root()
+                if (root / "foxforge.db").exists() or legacy_locations():
+                    raise ControlPlaneError("Existing state found; verify or migrate it instead of initializing another database")
+                ControlPlane(root / "foxforge.db")
+                print("Initialized explicit control-plane directory")
+            elif args.command == "verify":
+                print(json.dumps(verify_directory(Path(args.directory).resolve()), indent=2))
+            else:
+                print(json.dumps(backup(data_root(), Path(args.destination)), indent=2))
+            return 0
         store = ControlPlane()
         if (args.group, args.command) == ("projects", "register"):
             return register_project(args, store)
@@ -153,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
             return show_task(args, store)
         raise ControlPlaneError("Unknown foundation command")
     except (ControlPlaneError, GitError, GitHubAppError, IssueError, DiscoveryError, PlanValidationError,
-            PlanningProviderError, OSError, ValueError) as exc:
-        print(f"[foxforge] {exc}", file=sys.stderr)
+            PlanningProviderError, OSError, sqlite3.Error, ValueError) as exc:
+        from .security import redact
+        if isinstance(exc, sqlite3.Error):
+            print("[foxforge] SQLite operation failed; run doctor and storage verify", file=sys.stderr)
+            return 1
+        print(redact(f"[foxforge] {exc}"), file=sys.stderr)
         return 1

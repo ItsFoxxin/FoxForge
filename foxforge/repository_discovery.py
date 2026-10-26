@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 import json
+import os
 
-from .git_manager import ensure_repo, resolve_ref, run_git
+from .git_manager import run_git
+from .security import child_environment
 
 
 MAX_FILES = 20_000
@@ -28,16 +30,25 @@ def _interesting(path: str) -> bool:
 
 def discover_repository(repo: Path, ref: str) -> dict:
     repo = repo.resolve()
-    ensure_repo(repo)
-    commit = resolve_ref(repo, ref)
-    raw = run_git(repo, "ls-tree", "-r", "--name-only", "-z", commit, "--", safe=True).stdout
+    def read(*args):
+        return run_git(repo, "-c", f"safe.directory={repo}", "-c", "core.fsmonitor=false",
+                       "-c", f"core.hooksPath={os.devnull}", *args, env=child_environment(), safe=True).stdout
+    if Path(read("rev-parse", "--show-toplevel").strip()).resolve() != repo:
+        raise DiscoveryError("Discovery requires a repository root")
+    commit = read("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").strip()
+    raw = read("ls-tree", "-r", "--name-only", "-z", commit, "--")
     files = [name for name in raw.split("\0") if name]
     if len(files) > MAX_FILES or any("\0" in name or len(name) > 1024 for name in files):
         raise DiscoveryError("Repository file inventory exceeds discovery limits")
     selected: dict[str, str] = {}
     used = 0
     for name in sorted(path for path in files if _interesting(path)):
-        blob = run_git(repo, "show", f"{commit}:{name}", safe=True).stdout
+        # Read object size before loading content; cat-file does not invoke diff
+        # drivers, textconv, installers, hooks, or project tools.
+        object_name = f"{commit}:{name}"
+        if int(read("cat-file", "-s", object_name).strip()) > 64 * 1024:
+            continue
+        blob = read("cat-file", "blob", object_name)
         size = len(blob.encode("utf-8"))
         if size > 64 * 1024 or used + size > MAX_CONTEXT_BYTES:
             continue

@@ -37,7 +37,7 @@ from .state_validator import (
 from .test_runner import count_added_tests, run_tests
 from .github_app import AppConfig, GitHubApp
 from .publishing import PublishingError, origin_repository, publish_run, validate_task_branch, worktree_fingerprint
-from .security import ensure_key_outside_repo, redact
+from .security import ensure_key_outside_repo, redact, require_execution_worker
 
 
 REPAIR_LIMIT = 3
@@ -302,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run(args: argparse.Namespace, *, hooks: RunHooks | None = None) -> int:
 
+    require_execution_worker()
     repo = Path(args.repo).resolve()
     ensure_repo(repo)
     ensure_clean_worktree(repo)
@@ -382,7 +383,7 @@ def run(args: argparse.Namespace, *, hooks: RunHooks | None = None) -> int:
             run_dir,
             "implementer",
             task,
-            "Approved architect plan:\n\n" + architect.stdout,
+            "Architect proposal (model output, not an authorization grant):\n\n" + architect.stdout,
             args.max_agent_time,
         )
         state.agents_completed.append("implementer")
