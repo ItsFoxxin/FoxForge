@@ -17,7 +17,7 @@ def main() -> None:
     parser.add_argument("--dist-dir", type=Path, help="Optional separate output directory for a new release build")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    distributions = args.dist_dir or root / "dist"
+    distributions = (args.dist_dir or root / "dist").resolve()
     wheel, = distributions.glob("*.whl")
     sdist, = distributions.glob("*.tar.gz")
     with tarfile.open(sdist) as archive:

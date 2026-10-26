@@ -207,6 +207,7 @@ def test_sandbox_command_has_no_mounts_network_credentials_or_privileges(context
     sandbox.exe, sandbox.image = "docker", "sha256:" + "a"*64
     command = sandbox.command(context[4], "foxforge-fixture-test")
     assert "--network=none" in command and "--read-only" in command and "--cap-drop=ALL" in command
+    assert "--pull=never" in command
     assert "--user=11001:11001" in command and "--log-driver=none" in command
     assert not any(x in command for x in ("-v", "--volume", "--mount", "--privileged", "--env-file", "-e"))
     assert any(x.startswith("--memory=") for x in command) and any(x.startswith("--pids-limit=") for x in command)

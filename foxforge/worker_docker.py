@@ -42,7 +42,7 @@ class DockerSandbox:
 
     def command(self, assignment, name):
         budget = assignment["budgets"]
-        return [self.exe, "run", "--name", name, "--label", "foxforge.prototype=true",
+        return [self.exe, "run", "--pull=never", "--name", name, "--label", "foxforge.prototype=true",
                 "--label", f"foxforge.expires_at={assignment['expires_at']}",
                 "--read-only", "--user=11001:11001", "--cap-drop=ALL", "--security-opt=no-new-privileges:true",
                 "--network=none", "--log-driver=none", "--cpus=1", f"--memory={budget['memory_mb']}m",
