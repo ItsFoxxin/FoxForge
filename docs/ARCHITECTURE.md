@@ -1,5 +1,13 @@
 # Architecture
 
+## 0.4.0 worker foundation
+
+The [worker foundation and threat model](WORKER_FOUNDATION.md) describes the
+signed JSON protocol, additive SQLite attempt ledger, disposable fixture sandbox
+and centrally managed Qwen profile export. The control plane remains planning-only;
+mock worker execution is optional and restricted to a separate disposable host.
+Legacy templates and dispatch remain separate until reviewed parity and migration.
+
 ## 0.3.1 platform boundaries
 
 The existing control plane remains a small Python application with SQLite,

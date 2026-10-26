@@ -1,0 +1,9 @@
+{
+  "templates/qwen-agents/architect.md": "67a8ae6679e1ccdf21451a8ef9541d7eb945dc0ce1cead28276afb5c7e82f949",
+  "templates/qwen-agents/helper.md": "85ad29738793f29fd95a9e3ddf6c7bbd6c6b8a6ff42dd1b392419a1d247a7fdd",
+  "templates/qwen-agents/implementer.md": "054e88028027178b7bd62fb75ca96b712d1ebc19576549894fc5a4818195ac0c",
+  "templates/qwen-agents/reporter.md": "d7effbb57e70a34c62ac74e5715f1d3d2025a085d47e0962628ddf0943a84746",
+  "templates/qwen-agents/reviewer.md": "d34fbde632cdedcfdf02425c8c90cfec48408ef47f8db5694b73eec15d12ebee",
+  "templates/qwen-agents/tester.md": "f7ca8fcf5be7f05e32b15f4109b4786af6fc59b973231937eded35e2ba75ea54",
+  "templates/qwen-settings.json": "903f946966b85f161b8567a1878d8dd64568c5828effde1536cb6f362bcb14b2"
+}

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0
+
+- Add a bounded, versioned Ed25519-signed JSON worker protocol with exact
+  assignment/action/revision/path/budget scope, replay protection and cancellation.
+- Reuse control-plane SQLite for worker identities, leases, execution attempts,
+  ordered events and audit; preserve issue/planning authorization separation.
+- Add a separate optional disposable Linux sandbox with mock inference, fixed
+  fixture tools/tests, network denial, non-root/read-only execution, resource/output
+  bounds, cancellation, expired-container cleanup and durable worker replay inbox.
+- Add separate centrally versioned Qwen profiles, explicit approved model export
+  and configuration-integrity checks; preserve all six legacy templates/settings.
+- Add worker protocol/security/profile tests, real-container CI probes and a
+  documented threat model, developer guide and staged legacy consolidation plan.
+- Include worker tables/artifacts in existing backup verification. No core task
+  records, legacy histories or production installations are rewritten.
+
+Deployment impact: worker execution is synthetic-only and optional. No worker is
+added to production Compose. Deploy no prototype on the existing control-plane VM;
+use a separate disposable Docker host/CI runner. See docs/WORKER_FOUNDATION.md.
+Real Qwen/inference, live issues, publishing, remote worker transport, autonomous
+coding, deployment and infrastructure operations remain deferred to later
+numbered releases such as 0.4.1.
+
 ## 0.3.1
 
 - Add a digest-pinned Python 3.13/Debian container with a restricted one-shot CLI,

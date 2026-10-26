@@ -30,17 +30,17 @@ def main():
                 "--network=none", "--tmpfs=/tmp:rw,noexec,nosuid,size=32m", "--pids-limit=64", "--memory=512m",
                 "-v", f"{root / 'data'}:/var/lib/foxforge/control-plane",
                 "-v", f"{root / 'repos'}:/var/lib/foxforge/repos:ro", "-v", f"{root / 'config'}:/etc/foxforge:ro"]
-        command(*args, "foxforge:0.3.1", "storage", "init")
-        assert command(*args, "foxforge:0.3.1", "projects", "list").strip() == "[]"
-        command(*args, "foxforge:0.3.1", "storage", "init", expected=1)
-        command(*args, "foxforge:0.3.1", "watch", expected=2)
+        command(*args, "foxforge:0.4.0", "storage", "init")
+        assert command(*args, "foxforge:0.4.0", "projects", "list").strip() == "[]"
+        command(*args, "foxforge:0.4.0", "storage", "init", expected=1)
+        command(*args, "foxforge:0.4.0", "watch", expected=2)
         probe = "import os; from pathlib import Path; assert os.geteuid()==10001; assert not os.access('/var/lib/foxforge/repos',os.W_OK); assert not os.access('/etc/foxforge',os.W_OK); assert not Path('/var/run/docker.sock').exists()"
-        command(*args, "--entrypoint=python", "foxforge:0.3.1", "-c", probe)
+        command(*args, "--entrypoint=python", "foxforge:0.4.0", "-c", probe)
         # Bypassing the CLI still cannot invoke legacy execution entrypoints.
         guard = "from foxforge.test_runner import run_tests; run_tests(None, 'must-not-execute')"
-        command(*args, "--entrypoint=python", "foxforge:0.3.1", "-c", guard, expected=1)
+        command(*args, "--entrypoint=python", "foxforge:0.4.0", "-c", guard, expected=1)
 
-        command(*args, "foxforge:0.3.1", "storage", "verify", "--directory", "/var/lib/foxforge/control-plane")
+        command(*args, "foxforge:0.4.0", "storage", "verify", "--directory", "/var/lib/foxforge/control-plane")
         seed = """from pathlib import Path
 from foxforge.control_plane import ControlPlane
 cp = ControlPlane()
@@ -52,9 +52,9 @@ out = cp.artifacts(t['id'])
 cp.update_task(t['id'], state='awaiting_human_review', activity='idle', artifact_dir=out)
 print(t['id'])
 """
-        task_id = command(*args, "--entrypoint=python", "foxforge:0.3.1", "-c", seed).strip()
-        assert "awaiting_human_review" in command(*args, "foxforge:0.3.1", "tasks", "show", task_id)
-        command(*args, "foxforge:0.3.1", "storage", "verify", "--directory", "/var/lib/foxforge/control-plane")
+        task_id = command(*args, "--entrypoint=python", "foxforge:0.4.0", "-c", seed).strip()
+        assert "awaiting_human_review" in command(*args, "foxforge:0.4.0", "tasks", "show", task_id)
+        command(*args, "foxforge:0.4.0", "storage", "verify", "--directory", "/var/lib/foxforge/control-plane")
         # The real pinned gateway must boot under the shipped non-root/RO policy.
         env = root / "gateway.env"
         env.write_text("ENCRYPTION_KEY=" + secrets.token_hex(32) + "\nNODE_ENV=production\n", encoding="utf-8")

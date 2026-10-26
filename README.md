@@ -1,5 +1,12 @@
 # FoxForge
 
+Version **0.4.0** adds a [disposable worker foundation](docs/WORKER_FOUNDATION.md):
+signed protocol messages, SQLite execution attempts, bounded sandbox fixtures and
+separate worker Qwen profiles. It uses mock inference and does not execute live
+issues. The six legacy agent templates remain unchanged. Later increments use
+versions such as 0.4.1.
+
+
 Version 0.3.1 adds a one-shot Docker control plane, a separately pinned FreeLLMAPI
 gateway, `foxforge doctor`, explicit storage initialization/verification/backups,
 task model policies, and durable request budgets. Start with the

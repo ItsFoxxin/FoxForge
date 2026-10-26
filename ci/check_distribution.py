@@ -14,10 +14,12 @@ import argparse
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--wheelhouse", required=True, type=Path, help="Downloaded runtime dependency wheels for offline installation")
+    parser.add_argument("--dist-dir", type=Path, help="Optional separate output directory for a new release build")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    wheel, = (root / "dist").glob("*.whl")
-    sdist, = (root / "dist").glob("*.tar.gz")
+    distributions = args.dist_dir or root / "dist"
+    wheel, = distributions.glob("*.whl")
+    sdist, = distributions.glob("*.tar.gz")
     with tarfile.open(sdist) as archive:
         sources = archive.getnames()
         assert any(name.endswith("/tests/conftest.py") for name in sources)

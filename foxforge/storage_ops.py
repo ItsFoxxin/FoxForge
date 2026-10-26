@@ -23,9 +23,14 @@ def inspect_database(path: Path) -> dict:
         if db.execute("SELECT version FROM schema_info").fetchall() != [(SCHEMA_VERSION,)]:
             raise ControlPlaneError("Unsupported control-plane schema version")
         counts = {name: db.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0] for name in TABLES}
-        if db.execute("SELECT 1 FROM sqlite_master WHERE name='model_requests'").fetchone():
-            counts["model_requests"] = db.execute("SELECT COUNT(*) FROM model_requests").fetchone()[0]
+        for name in ("model_requests", "workers_v1", "worker_attempts_v1", "worker_events_v1"):
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name=?", (name,)).fetchone():
+                counts[name] = db.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
         tasks = db.execute("SELECT id,artifact_dir FROM tasks WHERE artifact_dir IS NOT NULL").fetchall()
+        if "worker_attempts_v1" in counts:
+            for task_id, result in db.execute("SELECT task_id,result_json FROM worker_attempts_v1 WHERE result_json IS NOT NULL"):
+                if json.loads(result)["data"]["artifacts"]:
+                    tasks.append((task_id, None))
     return {"schema_version": SCHEMA_VERSION, "counts": counts, "artifact_task_ids": [row[0] for row in tasks]}
 
 
