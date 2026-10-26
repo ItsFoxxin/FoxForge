@@ -1,4 +1,9 @@
-# FoxForge 0.3.1 on Debian 13
+# FoxForge 0.4.0 on Debian 13
+
+This guide deploys the **planning-only control plane**. The optional 0.4.0
+[fixture worker prototype](WORKER_FOUNDATION.md) runs only on a separate disposable
+Linux Docker host/CI runner. Do not run it on the production control-plane VM or
+mount a Docker socket into this stack. No live worker migration is included.
 
 This is an operator-run deployment guide, not an automatic migration. The existing
 0.3.0 venv, `/etc/foxforge`, clones and authoritative database remain intact.
@@ -39,8 +44,8 @@ sudo git -C /opt/foxforge-container/source checkout --detach "$APPROVED_SHA"
 test "$(sudo git -C /opt/foxforge-container/source rev-parse HEAD)" = "$APPROVED_SHA"
 test -z "$(sudo git -C /opt/foxforge-container/source status --porcelain)"
 cd /opt/foxforge-container/source
-sudo docker build -t foxforge:0.3.1 .
-sudo docker image inspect foxforge:0.3.1 --format '{{.Id}}'
+sudo docker build -t foxforge:0.4.0 .
+sudo docker image inspect foxforge:0.4.0 --format '{{.Id}}'
 ```
 
 The Python base and gateway image are pinned by digest. Runtime Python dependencies
@@ -294,7 +299,7 @@ container backup, not silently merged into the old database. Rehearse read-only
 
 The image's entrypoint refuses legacy `issue`, `watch`, shell and publishing
 commands. Existing venv execution workflows remain legacy opt-in paths. This
-release adds no coding workers, deployment tools, infrastructure credentials,
+control-plane deployment adds no execution workers, deployment tools, infrastructure credentials,
 Docker socket mounts, public dashboard, or production automation.
 
 `FOXFORGE_CONTROL_PLANE_ONLY=1` is baked into the image. Leave it set: legacy

@@ -24,7 +24,8 @@ class ApprovalScope:
 
     Future adapters must obtain approvals from a verified identity, enforce
     freshness/single use, compare the complete scope, and audit before execution.
-    No tool dispatcher or privileged adapter exists in this release.
+    This object grants no execution. The 0.4.0 fixture worker protocol validates
+    a separate complete approval envelope; no general tool dispatcher exists.
     """
     task_id: str
     action: str

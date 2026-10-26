@@ -45,3 +45,11 @@ settings only when absent; project-specific settings are preserved. Tests/CI do
 not require a checked-in .qwen directory, but target Qwen execution requires its
 installed role definitions. Publishing uses --publish-pr and origin/dev only.
 
+
+## Worker profile staging in 0.4.0
+
+The existing installer remains the legacy path and is unchanged. See
+[worker profile staging and integrity checks](WORKER_FOUNDATION.md#qwen-profiles-and-compatibility)
+for new profiles. They export to a new reviewed directory with an externally pinned
+digest and explicit operator-approved model; they do not overwrite project agents
+or launch Qwen. Parent approval modes are not an OS isolation boundary.

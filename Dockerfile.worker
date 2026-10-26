@@ -1,0 +1,8 @@
+FROM python:3.13-slim-trixie@sha256:d98cc29d3266e535dd9da1099688d9cb3ca4753813571e071763d17725460962
+# No Git, Qwen, provider SDK, key, control-plane database or Docker CLI.
+RUN groupadd --gid 11001 worker && useradd --uid 11001 --gid 11001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin worker
+COPY foxforge/worker_fixture.py foxforge/worker_sandbox.py /runner/
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER 11001:11001
+WORKDIR /workspace
+ENTRYPOINT ["python", "-I", "/runner/worker_sandbox.py"]
