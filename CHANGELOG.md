@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add a self-contained Fox Den Midnight (`DenKit v0.1`) HTML view for validated
+  implementation plans while preserving the existing Markdown and JSON artifacts.
+- Centralize the ten semantic theme tokens and document their accessible,
+  dependency-free use for future FoxForge surfaces.
+
 ## 0.3.1
 
 - Add a digest-pinned Python 3.13/Debian container with a restricted one-shot CLI,

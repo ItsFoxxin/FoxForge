@@ -65,6 +65,8 @@ def test_authorized_offline_plan_reaches_human_review(git_repo, tmp_path, monkey
     assert task["state"] == "awaiting_human_review" and task["base_sha"] == head_sha(git_repo)
     artifact = Path(task["artifact_dir"])
     assert (artifact / "plan.json").is_file() and "authorizes no implementation" in (artifact / "plan.md").read_text(encoding="utf-8")
+    html = (artifact / "plan.html").read_text(encoding="utf-8")
+    assert "FoxForge · DenKit v0.1" in html and "Awaiting human review" in html
     assert foundation_cli.main(["tasks", "plan", "--project", "owner/project", "--issue", "47", "--plan-file", str(plan_file)]) == 0
     duplicate = json.loads(capsys.readouterr().out)
     assert duplicate["duplicate"] is True and duplicate["task_id"] == task["id"]
