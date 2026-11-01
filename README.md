@@ -19,7 +19,10 @@ It verifies repository authorization, records issue discovery without model use,
 requires a trusted `foxforge:plan` label event for the exact issue revision,
 performs commit-pinned read-only discovery, validates a bounded capability-based
 plan, and stops at human review. See
-[the foundation deployment guide](docs/FOUNDATION_DEPLOYMENT.md).
+[the foundation deployment guide](docs/FOUNDATION_DEPLOYMENT.md). Each plan now
+includes a portable Fox Den Midnight HTML review view alongside the existing
+Markdown and JSON; the [DenKit v0.1 tokens](docs/DENKIT.md) are documented for
+future Fox Den surfaces.
 
 See the [Qwen legacy audit and 0.4.x migration recommendation](docs/QWEN_LEGACY_AUDIT.md)
 for execution risks, retained components and the provider/runtime boundary.

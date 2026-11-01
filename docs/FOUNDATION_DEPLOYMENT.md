@@ -182,7 +182,10 @@ set +a
 unset FOXFORGE_PLANNER_BASE_URL FOXFORGE_PLANNER_API_KEY FOXFORGE_PLANNER_MODEL
 ```
 
-The command returns a task ID and artifact directory. Review `plan.md`, `plan.json`, `repository-discovery.json`, and `model-telemetry.json`. The final state must be `awaiting_human_review`. No next action is authorized by that state.
+The command returns a task ID and artifact directory. Review `plan.html` (the
+portable Fox Den Midnight view), `plan.md`, `plan.json`,
+`repository-discovery.json`, and `model-telemetry.json`. The final state must be
+`awaiting_human_review`. No next action is authorized by that state.
 
 Inspect the durable record later:
 

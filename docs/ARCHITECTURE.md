@@ -93,7 +93,9 @@ Typical Windows location:
 %LOCALAPPDATA%\FoxForge\runs\<repo>\<run-id>\
 ```
 
-Artifacts can include:
+Planning tasks add a self-contained `plan.html` human-review view using the
+documented [Fox Den Midnight tokens](DENKIT.md) alongside their Markdown and
+JSON records. Legacy execution artifacts can include:
 
 ```text
 task.txt
