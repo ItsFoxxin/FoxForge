@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import os
 import tempfile
+from .security import redact
 
 
 @dataclass
@@ -29,10 +30,42 @@ class RunState:
     final_status: str = "RUNNING"
     notification_status: str = "NOT_SENT"
 
+    publish_requested: bool = False
+    github_repository: str | None = None
+    validated_head_sha: str | None = None
+    validated_tree_hash: str | None = None
+    publishing_status: str = "NOT_REQUESTED"
+    publishing_error: str | None = None
+    commit_sha: str | None = None
+    remote_branch: str | None = None
+    pull_request_number: int | None = None
+    pull_request_url: str | None = None
+
+    github_issue_number: int | None = None
+    github_issue_author_id: int | None = None
+    github_issue_approved_by_id: int | None = None
+    github_issue_url: str | None = None
+    github_issue_title: str | None = None
+    github_issue_body: str | None = None
+    github_issue_labels: list[str] = field(default_factory=list)
+    github_issue_created_at: str | None = None
+    github_issue_updated_at: str | None = None
+    github_issue_revision: str | None = None
+    github_issue_ready_event_id: int | None = None
+    github_issue_approved_by: str | None = None
+    github_issue_status: str | None = None
+    issue_sync_status: str = "NOT_REQUESTED"
+    issue_error: str | None = None
+    issue_claim_comment_id: int | None = None
+    issue_result_comment_id: int | None = None
+
     def to_dict(self) -> dict:
         return asdict(self)
 
     def save(self, path: Path) -> None:
+        payload = json.dumps(self.to_dict(), indent=2) + "\n"
+        if redact(payload) != payload:
+            raise ValueError("Refusing to persist credential material in RunState")
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         try:
@@ -41,7 +74,7 @@ class RunState:
                 prefix=path.name + ".", suffix=".tmp", delete=False,
             ) as stream:
                 temporary = Path(stream.name)
-                stream.write(json.dumps(self.to_dict(), indent=2) + "\n")
+                stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
             temporary.replace(path)

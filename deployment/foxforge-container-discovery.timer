@@ -1,0 +1,9 @@
+[Unit]
+Description=Poll authorized FoxForge repositories without inference
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

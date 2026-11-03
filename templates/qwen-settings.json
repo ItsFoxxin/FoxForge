@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["Agent"]
+  },
+  "$version": 4
+}

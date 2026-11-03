@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "summary": "Inspect the existing implementation, make the bounded change, and validate the combined result.",
+  "acceptance_criteria": [
+    "The requested behavior is implemented.",
+    "The repository's required validation passes."
+  ],
+  "assumptions": [],
+  "unknowns": [
+    "The exact implementation files must be confirmed from the pinned repository snapshot."
+  ],
+  "subtasks": [
+    {
+      "id": "implementation",
+      "title": "Implement the requested behavior",
+      "description": "Follow the existing repository conventions and make the smallest coherent implementation change.",
+      "capability": "development.general",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "The requested behavior is implemented."
+      ],
+      "owned_paths": [],
+      "validation": [
+        "Review the changed files against the acceptance criteria."
+      ]
+    },
+    {
+      "id": "validation",
+      "title": "Validate the candidate",
+      "description": "Run the repository's required checks against the integrated candidate when execution support is available.",
+      "capability": "quality.assurance",
+      "depends_on": [
+        "implementation"
+      ],
+      "acceptance_criteria": [
+        "The repository's required validation passes."
+      ],
+      "owned_paths": [],
+      "validation": [
+        "Record the exact commands, candidate commit, and results."
+      ]
+    }
+  ]
+}
