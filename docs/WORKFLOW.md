@@ -1,5 +1,20 @@
 # Workflow
 
+## Issue intake
+
+Allowlisted numeric issue-author ID + allowlisted ready-label actor ID ->
+explicit foxforge-ready -> durable claim/snapshot -> foxforge-running ->
+origin/dev task branch -> existing six-role/tests/three-repair coordinator ->
+READY_FOR_PLAYTEST or BLOCKED -> successful App publication to a dev PR ->
+exact Reporter validation -> verified issue comment/labels -> Discord.
+
+Use `foxforge issue 47 --help` manually or `foxforge watch --help` for sequential
+polling; both require explicit --publish-pr. Complete means local validation
+and publication succeeded. Three failed repairs mean blocked, preserved work,
+verified failure facts and nonzero exit; there is no fourth repair. Retries need
+owner reapproval and a new run ID. Interrupted claims are not silently resumed.
+See [ISSUE_INTAKE.md](ISSUE_INTAKE.md) for exact commands and laptop setup.
+
 ## Sandbox workflow
 
 Use the current branch and compare against `HEAD`:
@@ -38,7 +53,7 @@ agents + deterministic validation
    ↓
 READY_FOR_PLAYTEST
    ↓
-future: bot-authored commit/push/PR
+explicit --publish-pr: Python bot commit/push/PR
    ↓
 PR -> dev
    ↓
@@ -75,3 +90,24 @@ After the limit, the run becomes `BLOCKED`.
 Sandbox runs require a non-protected task/sandbox branch with an existing commit.
 Unverified or zero passing test counts also trigger repair. A BLOCKED run exits 1.
 
+
+## Optional publication after local validation
+
+Add `--publish-pr` to opt in. After Helper, Python validates the frozen
+HEAD/content snapshot, authenticates as the installed App, commits, pushes only
+the foxforge/* task ref, and opens/reuses an owned PR targeting dev. Reporter then
+receives the verified commit/branch/PR metadata. Three repair cycles remains the
+maximum; a failed local gate never reaches App authentication or publishing.
+
+READY_FOR_PLAYTEST describes local validation. publishing_status separately
+records NOT_REQUESTED, PENDING, COMMITTED, PUSHED, PUBLISHED, FAILED, or BLOCKED.
+Every completed publishing step is persisted. A publication failure leaves the
+local validation outcome intact and exits nonzero. Python never resets an
+already-created commit/branch/PR automatically. Unknown remote branch ownership
+and orphan branches without an owned PR require human review before retry.
+
+The CLI never publishes just because environment variables exist. Use
+`python -m foxforge.github_app --check --repository owner/name` for an
+independent read-only authentication/access check. Exact preparation and manual
+push/PR smoke-test commands are in GITHUB_APP.md. The implementation session and
+normal CI do not perform real GitHub writes.

@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+.venv/
+.env
+*.pem
+*.key
+*.db
+*.db-*
+container.env
+gateway.env
+gateway-api-key

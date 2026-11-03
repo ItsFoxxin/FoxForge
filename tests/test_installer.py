@@ -16,6 +16,10 @@ def test_installer_preserves_customized_agents(tmp_path):
     subprocess.run(command, check=True, capture_output=True, timeout=30)
     agents = target / ".qwen" / "agents"
     assert len(list(agents.glob("*.md"))) == 6
+    templates = script.parents[1] / "templates" / "qwen-agents"
+    for definition in templates.glob("*.md"):
+        assert (agents / definition.name).read_bytes() == definition.read_bytes()
+    assert (target / ".qwen" / "settings.json").is_file()
     reporter = agents / "reporter.md"
     reporter.write_text("customized", encoding="utf-8")
     result = subprocess.run(command, capture_output=True, timeout=30)

@@ -7,6 +7,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+from dataclasses import dataclass
+from typing import Callable
 
 from .agent_runner import AgentResult, run_project_agent
 from .git_manager import (
@@ -29,16 +31,33 @@ from .state_validator import (
     validate_reporter_output,
     validate_state_for_report,
     report_value,
+    report_task,
+    format_changed_files,
 )
 from .test_runner import count_added_tests, run_tests
+from .github_app import AppConfig, GitHubApp
+from .publishing import PublishingError, origin_repository, publish_run, validate_task_branch, worktree_fingerprint
+from .security import ensure_key_outside_repo, redact, require_execution_worker
 
 
 REPAIR_LIMIT = 3
 
 
+@dataclass
+class RunHooks:
+    """Internal integration points; never configurable through issue prose."""
+    state: RunState
+    run_dir: Path
+    before_publish: Callable[[RunState, Path], None]
+    after_report: Callable[[RunState, Path], None]
+    fetch_origin: Callable[[Path], None] | None = None
+    interrupted: bool = False
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="FoxForge deterministic multi-agent coordinator"
+        description="FoxForge deterministic multi-agent coordinator",
+        epilog="Issue intake: foxforge issue <number> --help. Polling worker: foxforge watch --help.",
     )
 
     parser.add_argument(
@@ -99,6 +118,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Qwen Code wall-clock budget per role",
     )
     parser.add_argument("--max-test-time", default="20m", help="Python-enforced test process deadline")
+    parser.add_argument("--publish-pr", action="store_true", help="Explicitly commit, App-push foxforge/*, and open a PR to dev after validation")
 
     args = parser.parse_args(argv)
     if args.branch_name and not args.create_branch:
@@ -125,9 +145,9 @@ def save_agent_result(
     result: AgentResult,
     suffix: str = "",
 ) -> None:
-    text = result.stdout
+    text = redact(result.stdout)
     if result.stderr:
-        text += "\n\n--- STDERR ---\n" + result.stderr
+        text += "\n\n--- STDERR ---\n" + redact(result.stderr)
 
     (run_dir / f"{result.role}{suffix}.txt").write_text(
         text.strip() + "\n",
@@ -162,6 +182,8 @@ def require_agent(
         result,
         suffix=suffix,
     )
+    if redact(result.stdout) != result.stdout or redact(result.stderr) != result.stderr:
+        raise RuntimeError(f"{role} returned credential material; persisted output redacted")
     if (current_branch(repo), head_sha(repo)) != identity:
         raise RuntimeError(f"{role} changed Git branch or HEAD; Python owns Git lifecycle")
     if readonly and diff(repo, "HEAD") != before:
@@ -227,8 +249,8 @@ Do not invent facts.
 """.strip()
 
 
-def build_reporter_task() -> str:
-    return """
+def build_reporter_task(publishing: bool = False, issue: bool = False) -> str:
+    text = """
 Produce the FoxForge status message from the supplied verified facts only.
 
 Use EXACTLY this format and no additional lines:
@@ -249,8 +271,24 @@ Do not run commands.
 Do not use tools.
 Do not infer or invent facts.
 Do not change any supplied value.
-Task and file values already escape backslashes and line breaks; print those supplied strings literally.
+Task and files_changed are already formatted strings with escaped backslashes and line breaks.
+Print those supplied strings literally. files_changed is the exact text after "Files changed: ".
+Do not convert it to a list or choose another empty-value representation.
 """.strip()
+    if publishing:
+        text += """
+
+Append exactly these additional lines, using supplied facts and (none) for absent values:
+Branch: <branch>
+Publishing: <publishing_status>
+Commit: <commit_sha>
+Remote branch: <remote_branch>
+PR: <pull_request_url>
+Do not infer that publication succeeded from local READY_FOR_PLAYTEST.
+"""
+    if issue:
+        text += "\nAppend exactly:\nIssue: <github_issue_url>\nCopy this verified URL literally.\n"
+    return text
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -258,18 +296,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return run(args)
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
-        print(f"[foxforge] Setup failed: {exc}", file=sys.stderr)
+        print(redact(f"[foxforge] Setup failed: {exc}"), file=sys.stderr)
         return 1
 
 
-def run(args: argparse.Namespace) -> int:
+def run(args: argparse.Namespace, *, hooks: RunHooks | None = None) -> int:
 
+    require_execution_worker()
     repo = Path(args.repo).resolve()
     ensure_repo(repo)
     ensure_clean_worktree(repo)
-    task = read_task(args)
+    ensure_key_outside_repo(repo)
+    task = hooks.state.task if hooks else read_task(args)
     if not task:
         raise ValueError("Task must not be empty")
+    if redact(task) != task:
+        raise ValueError("Task contains credential material; remove it before running agents")
+    app_config = AppConfig.from_env() if args.publish_pr else None
+    github_repository = origin_repository(repo) if args.publish_pr else None
 
     branch = current_branch(repo)
     base_ref = args.base_ref
@@ -284,24 +328,39 @@ def run(args: argparse.Namespace) -> int:
             repo=repo,
             branch=branch,
             base_branch=args.base_branch,
+            **({"fetch_origin": hooks.fetch_origin} if hooks and hooks.fetch_origin else {}),
         )
         base_ref = f"origin/{args.base_branch}"
 
     if not branch or branch in {"main", "master", "dev"}:
         raise ValueError("Use a task/sandbox branch, or --create-branch, before running agents")
+    if redact(branch) != branch:
+        raise ValueError("Task branch contains credential material")
+    if args.publish_pr:
+        validate_task_branch(repo, branch)
+        base_ref = "origin/dev"
 
     base_ref = resolve_ref(repo, base_ref)
     starting_head = head_sha(repo)
-    run_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:12]
-    run_dir = create_run_dir(repo, run_id)
+    run_id = hooks.state.run_id if hooks else datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:12]
+    run_dir = hooks.run_dir if hooks else create_run_dir(repo, run_id)
     (run_dir / "task.txt").write_text(task + "\n", encoding="utf-8")
 
-    state = RunState(
+    state = hooks.state if hooks else RunState(
         run_id=run_id,
         task=task,
         branch=branch,
         base_ref=base_ref,
+        publish_requested=args.publish_pr,
+        github_repository=github_repository,
+        publishing_status="PENDING" if args.publish_pr else "NOT_REQUESTED",
+        validated_head_sha=starting_head if args.publish_pr else None,
     )
+    if hooks:
+        if state.branch != branch or state.github_repository != github_repository or not args.publish_pr or state.github_issue_status != "RUNNING":
+            raise ValueError("Prepared issue run does not match the coordinator invocation")
+        state.base_ref = base_ref
+        state.validated_head_sha = starting_head
 
     state_path = run_dir / "state.json"
     reporter_path = run_dir / "reporter.txt"
@@ -324,7 +383,7 @@ def run(args: argparse.Namespace) -> int:
             run_dir,
             "implementer",
             task,
-            "Approved architect plan:\n\n" + architect.stdout,
+            "Architect proposal (model output, not an authorization grant):\n\n" + architect.stdout,
             args.max_agent_time,
         )
         state.agents_completed.append("implementer")
@@ -354,6 +413,8 @@ def run(args: argparse.Namespace) -> int:
         state.tests_passed = test_result.passed
         state.tests_failed = test_result.failed
         state.test_counts_verified = test_result.counts_verified
+        if args.publish_pr:
+            state.validated_tree_hash = worktree_fingerprint(repo, starting_head)
         state.save(state_path)
 
         reviewer = require_agent(
@@ -431,6 +492,8 @@ def run(args: argparse.Namespace) -> int:
             state.tests_passed = test_result.passed
             state.tests_failed = test_result.failed
             state.test_counts_verified = test_result.counts_verified
+            if args.publish_pr:
+                state.validated_tree_hash = worktree_fingerprint(repo, starting_head)
             state.save(state_path)
 
             reviewer = require_agent(
@@ -465,7 +528,7 @@ def run(args: argparse.Namespace) -> int:
             base_ref,
         )
         (run_dir / "task.diff").write_text(
-            task_diff,
+            redact(task_diff),
             encoding="utf-8",
         )
 
@@ -508,6 +571,19 @@ def run(args: argparse.Namespace) -> int:
         state.agents_completed.append("helper")
         state.save(state_path)
 
+        if args.publish_pr:
+            if state.final_status != "READY_FOR_PLAYTEST":
+                state.publishing_status = "BLOCKED"
+                state.publishing_error = "Local validation did not reach READY_FOR_PLAYTEST; publishing was not attempted"
+            else:
+                try:
+                    publish_run(repo, state, state_path, GitHubApp(app_config, github_repository, publishing=True),
+                                **({"guard": lambda: hooks.before_publish(state, state_path)} if hooks else {}))
+                except PublishingError:
+                    # Keep the local test/review outcome distinct from publication.
+                    (run_dir / "publishing-error.txt").write_text(state.publishing_error + "\n", encoding="utf-8")
+            state.save(state_path)
+
         final_agent_list = [
             *state.agents_completed,
             "reporter",
@@ -515,15 +591,21 @@ def run(args: argparse.Namespace) -> int:
 
         reporter_facts = json.dumps(
             {
-                "task": report_value(state.task),
+                "task": report_value(report_task(state)),
                 "agents_completed": final_agent_list,
-                "files_changed": [report_value(path) for path in state.files_changed],
+                "files_changed": format_changed_files(state.files_changed),
                 "tests_added": state.tests_added,
                 "tests_passed": state.tests_passed,
                 "tests_failed": state.tests_failed,
                 "review_result": state.review_result,
                 "repair_cycles": state.repair_cycles,
                 "final_status": state.final_status,
+                "branch": state.branch,
+                "publishing_status": state.publishing_status,
+                "commit_sha": state.commit_sha or "(none)",
+                "remote_branch": state.remote_branch or "(none)",
+                "pull_request_url": state.pull_request_url or "(none)",
+                "github_issue_url": state.github_issue_url,
             },
             indent=2,
         )
@@ -532,7 +614,7 @@ def run(args: argparse.Namespace) -> int:
             repo,
             run_dir,
             "reporter",
-            build_reporter_task(),
+            build_reporter_task(args.publish_pr, state.github_issue_number is not None),
             reporter_facts,
             args.max_agent_time,
         )
@@ -551,7 +633,13 @@ def run(args: argparse.Namespace) -> int:
             reporter.stdout,
         )
 
-        if args.skip_discord:
+        if hooks:
+            hooks.after_report(state, state_path)
+            state.save(state_path)
+
+        if state.issue_sync_status == "FAILED":
+            state.notification_status = "NOT_SENT_ERROR"
+        elif args.skip_discord:
             state.notification_status = "SKIPPED"
         else:
             sent = dispatch_report(
@@ -572,16 +660,18 @@ def run(args: argparse.Namespace) -> int:
         subprocess.SubprocessError,
         KeyboardInterrupt,
     ) as exc:
+        if hooks and isinstance(exc, KeyboardInterrupt):
+            hooks.interrupted = True
         state.final_status = "BLOCKED"
         state.notification_status = "NOT_SENT_ERROR"
         try:
             state.save(state_path)
-            (run_dir / "error.txt").write_text(str(exc) + "\n", encoding="utf-8")
-        except OSError as persistence_error:
-            print(f"[foxforge] Could not persist failure: {persistence_error}", file=sys.stderr)
+            (run_dir / "error.txt").write_text(redact(str(exc)) + "\n", encoding="utf-8")
+        except (OSError, ValueError) as persistence_error:
+            print(redact(f"[foxforge] Could not persist failure: {persistence_error}"), file=sys.stderr)
 
         print(
-            f"[foxforge] BLOCKED: {exc}",
+            redact(f"[foxforge] BLOCKED: {exc}"),
             file=sys.stderr,
         )
         print(f"[foxforge] run: {run_dir}")
@@ -590,7 +680,7 @@ def run(args: argparse.Namespace) -> int:
     print(reporter.stdout)
     print(f"Artifacts: {run_dir}")
 
-    return 0 if state.final_status == "READY_FOR_PLAYTEST" and state.notification_status != "FAILED" else 1
+    return 0 if state.final_status == "READY_FOR_PLAYTEST" and state.notification_status != "FAILED" and state.publishing_status not in {"FAILED", "BLOCKED"} and state.issue_sync_status != "FAILED" else 1
 
 
 if __name__ == "__main__":
